@@ -22,7 +22,7 @@ class ToolError(Exception):
 @dataclass
 class Tool:
     fn: Callable[..., dict]
-    schema: dict
+    schema: dict  # OpenAI function-tool schema
 
 
 def http_get(url: str, params: dict | None = None) -> dict:
@@ -34,6 +34,27 @@ def http_get(url: str, params: dict | None = None) -> dict:
     if r.status_code >= 400:
         raise ToolError(f"HTTP {r.status_code}: {r.text[:200]}")
     return r.json()
+
+
+def call_dependency(dependency: str, key: str, fetch: Callable[[], dict]) -> dict:
+    # Calls a shared dependency through its circuit breaker.
+    # Breaker open + fallback on -> serve the last good response from the cache.
+    # Breaker open + no fallback -> fail fast without calling the dependency.
+    # Every successful call refreshes the cache.
+    if db.get_control(f"circuit.{dependency}") == "open":
+        if db.get_control(f"fallback.{dependency}", False):
+            rows = db.query("SELECT value, ts FROM cache WHERE dependency = ? AND key = ?",
+                            (dependency, key))
+            if rows:
+                return {**json.loads(rows[0]["value"]), "source": "cache", "cached_at": rows[0]["ts"]}
+            raise ToolError(f"{dependency} circuit open and no cached data for '{key}'")
+        raise ToolError(f"{dependency} circuit open")
+    result = fetch()
+    db.execute(
+        "INSERT INTO cache(dependency, key, value, ts) VALUES(?, ?, ?, ?) "
+        "ON CONFLICT(dependency, key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
+        (dependency, key, json.dumps(result, ensure_ascii=False), time.time()))
+    return result
 
 
 class BaseAgent:
@@ -105,7 +126,7 @@ class BaseAgent:
             result = tool.fn(**call.arguments)
         except ToolError as e:
             error = str(e)
-        except TypeError as e:
+        except TypeError as e:  # bad arguments from the model
             error = f"bad arguments: {e}"
         latency = (time.perf_counter() - start) * 1000
         tracer.log_span(run_id, self.name, step, "tool", tool_name=call.name, input=call.arguments,
