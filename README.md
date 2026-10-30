@@ -4,7 +4,7 @@ An AI agent that monitors a fleet of enterprise AI agents, detects when they fai
 diagnoses the root cause (including several faults at once), fixes them safely,
 verifies recovery, and writes an incident report in English and Arabic.
 
-> Status: **Phase 1 (foundation)** — mock services, trace store, LLM gateway, HR + Procurement agents, workload.
+> Status: **Phase 2 (first vertical slice)** — the doctor detects, diagnoses, fixes and verifies a Vendor API outage (F1) on its own and writes an EN/AR report.
 
 ## Setup
 
@@ -20,6 +20,18 @@ cp .env.example .env        # MOCK_LLM=1 by default: no API key needed
 .venv/bin/python run.py --reset          # services + agents, fresh traces.db (Ctrl+C to stop)
 .venv/bin/python run.py --seconds 30     # stop automatically after 30 s
 .venv/bin/python run.py --services-only  # only the mock services
+.venv/bin/python run.py --no-doctor      # fleet without the doctor
+```
+
+## Try the doctor (fault F1: Vendor API down)
+
+In a second terminal while `run.py` is running:
+
+```bash
+.venv/bin/python -m chaos.faults inject F1   # break the Vendor API
+# watch the [doctor] lines: DETECT -> CORRELATE -> DIAGNOSE -> TREAT -> VERIFY -> REPORT
+.venv/bin/python -m doctor.reporter          # read the incident report (add --ar for Arabic)
+.venv/bin/python -m chaos.faults reset F1    # fix the Vendor API; the doctor closes the breaker (RESTORE)
 ```
 
 Mock services (ports in `config.yaml`):
@@ -74,3 +86,12 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
   (diacritics, alef/yaa/taa marbuta forms, the "ال" prefix).
 - **Run status is the agent's own view.** A run where every tool call failed but the agent replied
   "could not get quotes" is still `ok`. The doctor has to look at spans and health checks, not trust this.
+- **Rules detect, the LLM diagnoses.** Detection is plain rules on the traces. Diagnosis uses the doctor LLM
+  (strict JSON, validated, one retry); in MOCK mode or if the LLM fails it uses a rule-based board.
+- **Circuit breaker + cache.** Every tool goes through `call_dependency`, which caches the last good
+  response. The workload warms the quote cache at startup so a fallback always has data.
+- **Breaker closes by itself.** When a dependency with an open breaker reports healthy again,
+  the doctor closes the breaker and turns the fallback off (logged as RESTORE).
+- **Verification probes** (one fixed task per agent, checked against its trace and expected answer)
+  stand in for the golden health checks until Phase 3.
+- **`run.py` clears leftover faults and breakers** at startup so every run begins healthy.
