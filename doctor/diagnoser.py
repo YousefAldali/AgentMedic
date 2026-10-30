@@ -58,56 +58,79 @@ def agent_context(agents: list[str], since: float) -> dict:
         errors = db.query(
             "SELECT COUNT(*) AS n FROM spans WHERE kind = 'error' AND agent = ? AND ts >= ?",
             (a, since))[0]["n"]
-        active, _ = registry.get_active_prompt(a)
+        prompt = registry.active_info(a)
+        health = db.query("SELECT score, ts FROM health_checks WHERE agent = ? ORDER BY id DESC LIMIT 1", (a,))
         ctx[a] = {"llm": {"calls": stats["calls"], "errors": errors, "avg_ms": round(stats["avg_ms"])},
-                  "prompt": {"active": active, "last_known_good": registry.last_known_good(a)}}
+                  "prompt": {"active": prompt["version"], "last_known_good": registry.last_known_good(a),
+                             "deployed_at": prompt["created_at"]},
+                  "health_score": health[0]["score"] if health else None}
     return ctx
+
+
+def _service_hypotheses(c: Candidate, evidence: list[str]) -> list[Hypothesis]:
+    hyps = []
+    status = c.state.get("status")
+    integrity = c.state.get("data_integrity") or c.state.get("index_integrity")
+    confirmed = status in SERVICE_FAILING or integrity == "failed"
+    evidence.append(f"{c.dependency} health endpoint reports status={status}"
+                    + (f", integrity={integrity}" if integrity else ""))
+    against = [] if confirmed else [f"{c.dependency} health endpoint reports the service healthy"]
+    if c.healthy_agents:
+        against.append(f"other agents using {c.dependency} are healthy: {', '.join(c.healthy_agents)}")
+    err = c.errors or {"total": 0, "4xx": 0, "5xx": 0, "other": 0}
+    if err["5xx"]:
+        evidence.append(f"{err['5xx']} of {err['total']} errors are 5xx server errors")
+    if err["4xx"]:
+        against.append(f"{err['4xx']} of {err['total']} errors are 4xx (requests the service rejected), "
+                       "which an outage does not cause")
+    # The health endpoint is the strongest evidence. Without it, errors alone can
+    # never push an outage hypothesis to the action threshold.
+    share_5xx = err["5xx"] / err["total"] if err["total"] else 0
+    confidence = 0.9 if confirmed else round(min(0.55, 0.25 + 0.3 * share_5xx), 2)
+    if status in SERVICE_FAILING:
+        cause = f"{c.dependency} outage (status={status})"
+        fix = [Fix(action="open_circuit_breaker", target=c.dependency),
+               Fix(action="enable_fallback", target=c.dependency)]
+    elif integrity == "failed":
+        cause = f"{c.dependency} is serving corrupted data (integrity check failed)"
+        fix = ([Fix(action="rebuild_index", target=c.dependency)] if c.dependency == "knowledge_base" else
+               [Fix(action="open_circuit_breaker", target=c.dependency),
+                Fix(action="enable_fallback", target=c.dependency)])
+    else:
+        cause, fix = f"{c.dependency} outage (status={status})", []
+    hyps.append(Hypothesis(cause=cause, affected_agents=c.agents, evidence_for=evidence,
+                           evidence_against=against, confidence=confidence, proposed_fix=fix))
+    if err["4xx"]:
+        share_4xx = err["4xx"] / err["total"]
+        bad_against = []
+        if err["5xx"]:
+            bad_against.append(f"{err['5xx']} errors are 5xx server errors, which bad requests do not explain")
+        if confirmed:
+            bad_against.append(f"{c.dependency} health endpoint confirms a real failure (status={status})")
+        hyps.append(Hypothesis(
+            cause=f"{', '.join(c.agents)} tool sending bad requests to {c.dependency}",
+            affected_agents=c.agents,
+            evidence_for=[f"{err['4xx']} of {err['total']} errors are 4xx: the service rejected the requests"]
+            + [e for s in c.symptoms for e in s.evidence if "HTTP 4" in e][:1],
+            evidence_against=bad_against,
+            confidence=round(min(0.55, 0.25 + 0.3 * share_4xx), 2),
+            proposed_fix=[]))
+    return hyps
+
+
+LOOP_SYMPTOMS = {"repeated_call_loop", "token_spike"}
 
 
 def rule_board(candidates: list[Candidate], ctx: dict) -> Board:
     hyps = []
     affected = sorted({a for c in candidates for a in c.agents})
+    upstream = sorted({c.dependency for c in candidates if c.kind == "cascade"})
+    first_symptom = min((s.first_seen for c in candidates for s in c.symptoms), default=time.time())
     for c in candidates:
         evidence = [s.describe() for s in c.symptoms] + [e for s in c.symptoms for e in s.evidence[:2]]
+        types = {s.type for s in c.symptoms}
         if c.state is not None:
-            status = c.state.get("status")
-            integrity = c.state.get("data_integrity") or c.state.get("index_integrity")
-            confirmed = status in SERVICE_FAILING or integrity == "failed"
-            evidence.append(f"{c.dependency} health endpoint reports status={status}")
-            against = [] if confirmed else [f"{c.dependency} health endpoint reports the service healthy"]
-            if c.healthy_agents:
-                against.append(f"other agents using {c.dependency} are healthy: {', '.join(c.healthy_agents)}")
-            err = c.errors or {"total": 0, "4xx": 0, "5xx": 0, "other": 0}
-            if err["5xx"]:
-                evidence.append(f"{err['5xx']} of {err['total']} errors are 5xx server errors")
-            if err["4xx"]:
-                against.append(f"{err['4xx']} of {err['total']} errors are 4xx (requests the service rejected), "
-                               "which an outage does not cause")
-            # The health endpoint is the strongest evidence. Without it, errors alone can
-            # never push an outage hypothesis to the action threshold.
-            share_5xx = err["5xx"] / err["total"] if err["total"] else 0
-            confidence = 0.9 if confirmed else round(min(0.55, 0.25 + 0.3 * share_5xx), 2)
-            fix = ([Fix(action="open_circuit_breaker", target=c.dependency),
-                    Fix(action="enable_fallback", target=c.dependency)] if status in SERVICE_FAILING else [])
-            hyps.append(Hypothesis(
-                cause=f"{c.dependency} outage (status={status})", affected_agents=c.agents,
-                evidence_for=evidence, evidence_against=against,
-                confidence=confidence, proposed_fix=fix))
-            if err["4xx"]:
-                share_4xx = err["4xx"] / err["total"]
-                bad_against = []
-                if err["5xx"]:
-                    bad_against.append(f"{err['5xx']} errors are 5xx server errors, which bad requests do not explain")
-                if confirmed:
-                    bad_against.append(f"{c.dependency} health endpoint confirms a real failure (status={status})")
-                hyps.append(Hypothesis(
-                    cause=f"{', '.join(c.agents)} tool sending bad requests to {c.dependency}",
-                    affected_agents=c.agents,
-                    evidence_for=[f"{err['4xx']} of {err['total']} errors are 4xx: the service rejected the requests"]
-                    + [e for s in c.symptoms for e in s.evidence if "HTTP 4" in e][:1],
-                    evidence_against=bad_against,
-                    confidence=round(min(0.55, 0.25 + 0.3 * share_4xx), 2),
-                    proposed_fix=[]))
+            hyps += _service_hypotheses(c, evidence)
         elif c.dependency == "llm":
             hyps.append(Hypothesis(
                 cause="LLM endpoint degraded", affected_agents=c.agents, evidence_for=evidence,
@@ -115,14 +138,31 @@ def rule_board(candidates: list[Candidate], ctx: dict) -> Board:
                 if c.healthy_agents else [],
                 confidence=0.8 if c.kind == "shared" else 0.5,
                 proposed_fix=[Fix(action="switch_model", target="llm")]))
-        else:
+        elif c.kind == "cascade":
             hyps.append(Hypothesis(
-                cause=f"agent-level fault in {', '.join(c.agents)}", affected_agents=c.agents,
-                evidence_for=evidence, confidence=0.4))
+                cause=f"cascade: {c.dependency} is producing invalid output that {', '.join(c.agents)} consumes",
+                affected_agents=sorted(set(c.agents) | {c.dependency}), evidence_for=evidence,
+                evidence_against=[], confidence=0.8,
+                proposed_fix=[Fix(action="replay_run", target=c.dependency)]
+                + [Fix(action="replay_run", target=a) for a in c.agents]))
+        else:
+            agent = c.agents[0]
+            if types & LOOP_SYMPTOMS:
+                hyps.append(Hypothesis(
+                    cause=f"runaway tool loop in {agent}", affected_agents=[agent],
+                    evidence_for=[e for e in evidence if any(k in e for k in ("loop", "token", "called", "used"))],
+                    confidence=0.85,
+                    proposed_fix=[Fix(action="kill_run", target=agent), Fix(action="set_step_cap", target=agent)]))
+            if types - LOOP_SYMPTOMS:
+                hyps.append(Hypothesis(
+                    cause=f"{agent} gives wrong answers or fails without a dependency error",
+                    affected_agents=[agent],
+                    evidence_for=[e for e in evidence if "loop" not in e and "token" not in e],
+                    confidence=0.4))
 
     if not any(c.dependency == "llm" for c in candidates):
         against = [f"{a}: {ctx[a]['llm']['calls']} LLM calls, {ctx[a]['llm']['errors']} LLM errors, "
-                   f"avg {ctx[a]['llm']['avg_ms']} ms - responding normally" for a in affected]
+                   f"avg {ctx[a]['llm']['avg_ms']} ms - responding normally" for a in affected if a in ctx]
         healthy = [a for a in registry.dependencies() if a not in affected]
         if healthy:
             against.append(f"other agents on the same LLM are healthy: {', '.join(healthy)}")
@@ -130,19 +170,41 @@ def rule_board(candidates: list[Candidate], ctx: dict) -> Board:
                                evidence_against=against, confidence=0.05,
                                proposed_fix=[Fix(action="switch_model", target="llm")]))
 
-    for a in affected:
+    for a in sorted(set(affected) | set(upstream)):
         p = ctx[a]["prompt"]
         good = p["active"] == p["last_known_good"]
+        evidence_for = []
+        if not good:
+            evidence_for.append(f"active prompt v{p['active']} is not the last known-good v{p['last_known_good']}")
+            if p.get("deployed_at"):
+                evidence_for.append(f"v{p['active']} went live {first_symptom - p['deployed_at']:.0f} s "
+                                    "before the first symptom")
+            if a in upstream:
+                evidence_for.append(f"{a}'s output is what the downstream agents fail on")
         hyps.append(Hypothesis(
             cause=f"bad prompt deployed for {a}", affected_agents=[a],
-            evidence_for=[] if good else [f"active prompt v{p['active']} is not the last known-good "
-                                          f"v{p['last_known_good']}"],
+            evidence_for=evidence_for,
             evidence_against=[f"active prompt v{p['active']} is the last known-good version"] if good else [],
-            confidence=0.05 if good else 0.6,
+            confidence=0.05 if good else 0.8,
             proposed_fix=[Fix(action="rollback_prompt", target=a)]))
 
     hyps.sort(key=lambda h: -h.confidence)
     return Board(hypotheses=hyps, source="rules")
+
+
+def cause_ids(h: Hypothesis) -> set[str]:
+    # Turns a hypothesis into the root-cause ids used for scoring, based on what its fix touches.
+    ids = set()
+    for f in h.proposed_fix:
+        if f.action in ("open_circuit_breaker", "enable_fallback", "rebuild_index"):
+            ids.add(f.target)
+        elif f.action == "switch_model":
+            ids.add("llm")
+        elif f.action == "rollback_prompt":
+            ids.add(f"prompt:{f.target}")
+        elif f.action in ("kill_run", "set_step_cap"):
+            ids.add(f"loop:{f.target}")
+    return ids
 
 
 def _extract_json(text: str) -> str:
@@ -231,7 +293,8 @@ def apply_guards(board: Board, candidates: list[Candidate]) -> Board:
 
 
 def diagnose(candidates: list[Candidate], since: float) -> Board:
-    agents = sorted({a for c in candidates for a in c.agents})
+    agents = sorted({a for c in candidates for a in c.agents}
+                    | {c.dependency for c in candidates if c.kind == "cascade"})
     ctx = agent_context(agents, since)
     if mock_llm():
         return apply_guards(rule_board(candidates, ctx), candidates)
