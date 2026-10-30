@@ -9,8 +9,10 @@ import threading
 import time
 import traceback
 
+import httpx
+
 from common import db
-from common.config import get_config
+from common.config import get_config, service_url
 from doctor import actions
 from doctor.correlator import correlate, read_state
 from doctor.detectors import Symptom, detect
@@ -61,7 +63,7 @@ class Doctor:
             board = diagnose(candidates, since)
             causes = root_causes(board)
             for h in board.hypotheses:
-                verdict = "ROOT CAUSE" if h in causes else "rejected"
+                verdict = "ROOT CAUSE" if h in causes else "inconclusive" if h.confidence >= 0.3 else "rejected"
                 why = h.evidence_against[0] if h.evidence_against and h not in causes else (h.evidence_for or [""])[0]
                 event(incident_id, "DIAGNOSE", f"[{h.confidence:.0%}] {h.cause} - {verdict}. {why}")
             db.execute("UPDATE incidents SET hypotheses = ?, root_causes = ? WHERE id = ?",
@@ -75,6 +77,11 @@ class Doctor:
                 break
 
             fixes = list(dict.fromkeys((f.action, f.target) for h in causes for f in h.proposed_fix))
+            if not any(actions.tier_of(a) in (actions.AUTO, actions.APPROVAL) for a, _ in fixes):
+                escalation_reason = (f"The root cause ('{causes[0].cause}', {causes[0].confidence:.0%}) has no "
+                                     "safe automatic fix, so AgentMedic escalates instead of guessing.")
+                event(incident_id, "DIAGNOSE", "no allowed action fits the root cause")
+                break
             for name, target in fixes:
                 if any(a["action"] == name and a["target"] == target and a["status"] == "done" for a in done_actions):
                     continue
@@ -143,13 +150,29 @@ class Doctor:
             integrity = state.get("data_integrity") or state.get("index_integrity") or "ok"
             if state.get("status") != "up" or integrity != "ok":
                 continue
+            if not self.trial_requests(dep):
+                continue
             rows = db.query("SELECT incident_id FROM actions_log WHERE target = ? AND action = 'open_circuit_breaker' "
                             "ORDER BY id DESC LIMIT 1", (dep,))
             incident_id = rows[0]["incident_id"] if rows else None
             actions.execute("close_circuit_breaker", dep, incident_id)
             if db.get_control(f"fallback.{dep}"):
                 actions.execute("disable_fallback", dep, incident_id)
-            event(incident_id, "RESTORE", f"{dep} is healthy again: circuit breaker closed, live data restored")
+            event(incident_id, "RESTORE", f"{dep} passed {self.cfg['half_open_requests']} real test requests: "
+                                          "circuit breaker closed, live data restored")
+
+
+    def trial_requests(self, dep: str) -> bool:
+        # Half-open check: the health endpoint can be wrong, so send a few real requests
+        # and only trust the dependency again if every one of them succeeds.
+        url = service_url(dep) + get_config()["services"][dep]["probe"]
+        for _ in range(self.cfg["half_open_requests"]):
+            try:
+                if httpx.get(url, timeout=3).status_code >= 400:
+                    return False
+            except httpx.HTTPError:
+                return False
+        return True
 
 
 def run_forever(stop: threading.Event) -> None:
