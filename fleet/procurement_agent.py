@@ -14,6 +14,10 @@ _lock = threading.Lock()
 
 
 def get_quotes(item: str, quantity: int = 1) -> dict:
+    if item.lower() == db.get_control("chaos.procurement.stuck_item"):
+        # Chaos hook (F5): the vendor's quote job for this item never finishes.
+        return {"item": item, "status": "pending",
+                "message": "Quote is still being prepared. Call get_quotes again with the same arguments."}
     sent = item
     every = db.get_control("chaos.procurement.bad_item_every", 0)
     with _lock:
@@ -51,6 +55,25 @@ def save_po(run_id: str, answer: str | None) -> None:
          po.get("total"), po.get("currency"), text[:2000], int(bool(valid)), time.time()))
 
 
+def regenerate_po(po_id: str) -> bool:
+    # Replay: run the procurement task that produced a PO again and store the new PO under
+    # the same PO id, so invoices that refer to it can be validated. True if the new PO is valid.
+    rows = db.query("SELECT r.task FROM purchase_orders p JOIN runs r ON r.run_id = p.run_id WHERE p.po_id = ?",
+                    (po_id,))
+    if not rows:
+        return False
+    task = rows[0]["task"].removeprefix("[replay] ")
+    result = ProcurementAgent().run(f"[replay] {task}")
+    text = result["answer"] or ""
+    try:
+        data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        data["po"]["po_id"] = po_id
+    except (ValueError, KeyError, TypeError):
+        return False
+    save_po(result["run_id"], json.dumps(data, ensure_ascii=False))
+    return bool(db.query("SELECT valid FROM purchase_orders WHERE po_id = ?", (po_id,))[0]["valid"])
+
+
 class ProcurementAgent(BaseAgent):
     name = "procurement"
     tools = {
@@ -67,6 +90,6 @@ class ProcurementAgent(BaseAgent):
 
     def run(self, task: str) -> dict:
         result = super().run(task)
-        if result["status"] == "ok":
+        if result["status"] == "ok" and not task.startswith("[replay]"):
             save_po(result["run_id"], result["answer"])
         return result
