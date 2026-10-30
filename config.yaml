@@ -13,7 +13,7 @@ agents:
   tool_timeout_s: 5
 
 workload:
-  interval_s: 3                # seconds between new tasks
+  interval_s: 6                # every agent gets a new task this often
   max_concurrent: 4
 
 llm:
@@ -29,15 +29,24 @@ chaos:
 dependencies:
   hr: [hr_db, knowledge_base, llm]
   procurement: [vendor_api, llm]
+  finance: [procurement, llm]
+  support: [knowledge_base, llm]
 
-# Agent -> agents whose output it consumes (Finance <- Procurement arrives in Phase 3).
-upstream: {}
+# Agent -> agents whose output it consumes (finance validates procurement's purchase orders).
+upstream:
+  finance: [procurement]
 
 # Which dependency each tool calls.
 tools:
   get_quotes: vendor_api
   get_leave_balance: hr_db
   search_knowledge_base: knowledge_base
+  get_purchase_order: procurement
+
+health:
+  interval_s: 60               # golden health checks run this often
+  first_run_after_s: 5
+  healthy_score: 1.0           # score an agent needs to count as recovered after a fix
 
 doctor:
   poll_interval_s: 5           # how often the doctor checks the traces
