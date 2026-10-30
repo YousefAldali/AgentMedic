@@ -10,8 +10,9 @@ import uuid
 from common.llm import ToolCall
 
 ARABIC = re.compile(r"[؀-ۿ]")
-MAX_TOOL_RETRIES = 3
+MAX_TOOL_RETRIES = 3  # how often a mock agent retries a failing tool before giving up
 
+# Arabic and English words -> catalog item keys used by the vendor API
 ITEM_WORDS = {
     "laptops": ["laptop", "حاسوب محمول", "لابتوب", "حواسيب"],
     "monitors": ["monitor", "شاشة", "شاشات"],
@@ -48,6 +49,7 @@ def _trailing_errors(results: list[dict]) -> int:
     return n
 
 
+# ---------------------------------------------------------------- HR agent
 def _hr(task: str, results: list[dict], ar: bool):
     emp = re.search(r"\bE\d{3}\b", task)
     asks_leave = bool(re.search(r"leave|vacation|إجاز|رصيد", task, re.I))
@@ -73,6 +75,7 @@ def _hr(task: str, results: list[dict], ar: bool):
             else f"According to \"{top['title']}\": {top['snippet']}"), []
 
 
+# ------------------------------------------------------- Procurement agent
 def _parse_order(task: str) -> tuple[str, int]:
     qty = re.search(r"\d+", task)
     low = task.lower()
