@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from common import db, llm, registry
 from common.config import get_config, mock_llm
 from doctor.actions import REGISTRY
-from doctor.correlator import Candidate
+from doctor.correlator import Candidate, read_state
 
 
 class Fix(BaseModel):
@@ -181,11 +181,60 @@ def llm_board(candidates: list[Candidate], ctx: dict) -> Board | None:
     return None
 
 
+GUARD_CAP = 0.55
+
+
+def known_targets() -> set[str]:
+    cfg = get_config()
+    return set(cfg["services"]) | set(registry.dependencies()) | {"llm"}
+
+
+def canonical_target(target: str) -> str:
+    # Maps loose names from the LLM ("vendor_api.get_quotes", "Vendor API") to a real target.
+    known = known_targets()
+    if target in known:
+        return target
+    flat = target.lower().replace(" ", "_")
+    for name in sorted(known, key=len, reverse=True):
+        if name in flat:
+            return name
+    return target
+
+
+def apply_guards(board: Board, candidates: list[Candidate]) -> Board:
+    # Safety rules in code, applied after every diagnosis (LLM or rules), because an LLM's
+    # confidence numbers are not precise enough to decide on their own whether to act.
+    # A hypothesis whose fix touches a service is capped below the action threshold when
+    #   - that service's health endpoint says it is healthy, or
+    #   - its errors are a mix of bad requests (4xx) and server failures (5xx).
+    # The cap is keyed on the fix target, not on how the hypothesis is worded.
+    by_dep = {c.dependency: c for c in candidates}
+    services = get_config()["services"]
+    for h in board.hypotheses:
+        for fix in h.proposed_fix:
+            fix.target = canonical_target(fix.target)
+        for target in sorted({f.target for f in h.proposed_fix if f.target in services}):
+            c = by_dep.get(target)
+            state = (c.state if c else None) or read_state(target) or {}
+            status = state.get("status")
+            integrity = state.get("data_integrity") or state.get("index_integrity") or "ok"
+            healthy = status == "up" and integrity == "ok"
+            err = (c.errors if c else None) or {}
+            mixed = err.get("4xx", 0) > 0 and err.get("5xx", 0) > 0
+            if (healthy or mixed) and h.confidence > GUARD_CAP:
+                why = (f"{target} health endpoint reports it healthy" if healthy else
+                       f"{target} errors are mixed ({err['4xx']} bad requests, {err['5xx']} server errors)")
+                h.evidence_against.append(f"safety rule: {why}, so confidence is capped at {GUARD_CAP:.0%}")
+                h.confidence = GUARD_CAP
+    board.hypotheses.sort(key=lambda h: -h.confidence)
+    return board
+
+
 def diagnose(candidates: list[Candidate], since: float) -> Board:
     agents = sorted({a for c in candidates for a in c.agents})
     ctx = agent_context(agents, since)
     if mock_llm():
-        return rule_board(candidates, ctx)
+        return apply_guards(rule_board(candidates, ctx), candidates)
     try:
         board = llm_board(candidates, ctx)
     except llm.LLMError:
@@ -193,7 +242,7 @@ def diagnose(candidates: list[Candidate], since: float) -> Board:
     if board is None:
         board = rule_board(candidates, ctx)
         board.source = "rules (LLM fallback)"
-    return board
+    return apply_guards(board, candidates)
 
 
 def root_causes(board: Board) -> list[Hypothesis]:
