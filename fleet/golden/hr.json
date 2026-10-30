@@ -1,0 +1,6 @@
+[
+  {"question": "How many leave days does E002 have left?", "expect": {"regex": "\\b21\\b"}},
+  {"question": "كم رصيد إجازات الموظف E003؟", "expect": {"regex": "\\b9\\b|٩"}},
+  {"question": "What is the remote work policy?", "expect": {"regex": "\\b2\\b|\\btwo\\b"}},
+  {"question": "How many unused annual leave days can be carried over?", "expect": {"regex": "\\b10\\b|\\bten\\b"}}
+]
