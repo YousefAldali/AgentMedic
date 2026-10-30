@@ -8,16 +8,17 @@ import json
 import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, wait
 
 import httpx
 
-from common import db
-from common.config import get_config, service_url
+from common import db, registry
+from common.config import env, get_config, service_url
 from doctor import actions
 from doctor.correlator import correlate, read_state
 from doctor.detectors import Symptom, detect
 from doctor.diagnoser import diagnose, root_causes
-from doctor.monitor import snapshot
+from doctor.monitor import run_health_check, snapshot
 from doctor.reporter import facts, write_reports
 from doctor.verifier import verify
 
@@ -34,11 +35,36 @@ class Doctor:
         self.watch_from = time.time()
         self.suppressed: dict[tuple, float] = {}
 
+    def reset(self) -> None:
+        # Forget past incidents (used between benchmark scenarios).
+        self.watch_from = time.time()
+        self.suppressed = {}
+
+    def detect_now(self, since: float) -> list[Symptom]:
+        now = time.time()
+        return [s for s in detect(snapshot(since)) if self.suppressed.get((s.agent, s.dependency), 0) < now]
+
+    def check_everyone(self, incident_id: int) -> None:
+        # Something is wrong somewhere: health-check every agent now instead of waiting for the
+        # schedule, so independent problems (e.g. a bad prompt) end up on the same board.
+        from fleet.workload import build_fleet
+        agents = list(build_fleet())
+        pool = ThreadPoolExecutor(max_workers=len(agents))
+        futures = {pool.submit(run_health_check, a, "incident"): a for a in agents}
+        done, _ = wait(futures, timeout=self.cfg["on_demand_checks_s"])
+        pool.shutdown(wait=False)
+        scores = []
+        for fut, agent in futures.items():
+            if fut in done and fut.exception() is None and fut.result():
+                scores.append(f"{agent} {fut.result()['score']:.2f}")
+            else:
+                scores.append(f"{agent} (still running)")
+        event(incident_id, "MONITOR", "health-checked every agent: " + ", ".join(scores))
+
     def tick(self) -> None:
         self.restore_dependencies()
         since = max(time.time() - self.cfg["window_s"], self.watch_from)
-        now = time.time()
-        symptoms = [s for s in detect(snapshot(since)) if self.suppressed.get((s.agent, s.dependency), 0) < now]
+        symptoms = self.detect_now(since)
         if symptoms:
             self.handle(symptoms, since)
             self.watch_from = time.time()
@@ -49,6 +75,14 @@ class Doctor:
             "INSERT INTO incidents(status, symptoms, opened_at, first_symptom_at) VALUES('open', ?, ?, ?)",
             (json.dumps([s.to_dict() for s in symptoms]), time.time(), first))
         event(incident_id, "DETECT", f"{len(symptoms)} symptom(s): " + "; ".join(s.describe() for s in symptoms))
+        self.check_everyone(incident_id)
+        known = {(s.type, s.agent, s.dependency) for s in symptoms}
+        extra = [s for s in self.detect_now(since) if (s.type, s.agent, s.dependency) not in known]
+        if extra:
+            symptoms += extra
+            event(incident_id, "DETECT", f"{len(extra)} more symptom(s): " + "; ".join(s.describe() for s in extra))
+            db.execute("UPDATE incidents SET symptoms = ? WHERE id = ?",
+                       (json.dumps([s.to_dict() for s in symptoms]), incident_id))
 
         done_actions, verification, board, recovered = [], [], None, False
         escalation_reason = ""
@@ -82,10 +116,24 @@ class Doctor:
                                      "safe automatic fix, so AgentMedic escalates instead of guessing.")
                 event(incident_id, "DIAGNOSE", "no allowed action fits the root cause")
                 break
-            for name, target in fixes:
+            for name, target in order_fixes(fixes):
                 if any(a["action"] == name and a["target"] == target and a["status"] == "done" for a in done_actions):
                     continue
-                result = actions.execute(name, target, incident_id)
+                approved_by = None
+                if actions.tier_of(name) == actions.APPROVAL and env("AUTO_APPROVE", "0") != "1":
+                    why = next(h.cause for h in causes if (name, target) in {(f.action, f.target) for f in h.proposed_fix})
+                    approval_id = actions.request_approval(name, target, incident_id, why)
+                    event(incident_id, "TREAT", f"{name}({target}) [approval] -> waiting for a human to approve "
+                          f"(#{approval_id}; dashboard, or: python -m doctor.approvals approve {approval_id})")
+                    decision = actions.wait_for_decision(approval_id, self.cfg["approval_timeout_s"])
+                    if decision["status"] != "approved":
+                        status = "rejected" if decision["status"] == "rejected" else "not approved in time"
+                        done_actions.append({"action": name, "target": target, "tier": actions.APPROVAL,
+                                             "status": status, "ts": time.time()})
+                        event(incident_id, "TREAT", f"{name}({target}) [approval] -> {status}")
+                        continue
+                    approved_by = decision["decided_by"]
+                result = actions.execute(name, target, incident_id, approved_by=approved_by)
                 result["ts"] = time.time()
                 done_actions.append(result)
                 event(incident_id, "TREAT", f"{name}({target}) [{result['tier']}] -> {result['status']}"
@@ -135,6 +183,13 @@ class Doctor:
                 cached = " and agents are served cached data" if db.get_control(f"fallback.{dep}") else ""
                 follow_up.append(f"{dep} is still {state.get('status', 'unknown')}; its circuit breaker stays "
                                  f"open{cached}. The doctor closes it automatically once {dep} is healthy.")
+        if db.get_control("llm.route_to_backup"):
+            follow_up.append("Fleet LLM calls still go to the backup model. Switch back once the primary "
+                             "model's latency is normal again.")
+        for agent in registry.dependencies():
+            if db.get_control(f"agent.{agent}.max_steps") is not None:
+                follow_up.append(f"{agent} runs are capped at {db.get_control(f'agent.{agent}.max_steps')} steps "
+                                 "to contain the loop. A human should fix what makes the tool loop, then lift the cap.")
         en, ar = write_reports(facts(incident, board_dict, done_actions, verification, follow_up,
                                      escalation_reason))
         db.execute("UPDATE incidents SET report_md = ?, report_md_ar = ? WHERE id = ?", (en, ar, incident_id))
@@ -175,8 +230,18 @@ class Doctor:
         return True
 
 
-def run_forever(stop: threading.Event) -> None:
-    doc = Doctor()
+def order_fixes(fixes: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    # Automatic fixes first (contain the damage now), then the ones that need a human,
+    # and replays last, once their cause is fixed.
+    def rank(fix):
+        if fix[0] == "replay_run":
+            return 2
+        return 1 if actions.tier_of(fix[0]) == actions.APPROVAL else 0
+    return sorted(fixes, key=rank)
+
+
+def run_forever(stop: threading.Event, doc: "Doctor | None" = None) -> None:
+    doc = doc or Doctor()
     interval = doc.cfg["poll_interval_s"]
     print(f"[doctor] watching the fleet every {interval} s", flush=True)
     while not stop.wait(interval):
