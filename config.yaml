@@ -24,6 +24,8 @@ chaos:
   slow_delay_s: 4              # delay added by the "slow" fault mode
   flaky_fail_every: 2          # in the "flaky" mode every Nth request fails
   bad_item_every: 3            # the misbehaving tool garbles every Nth call (F10)
+  llm_slow_ms: 6000            # extra delay on the primary LLM (F4)
+  stuck_item: printers         # quotes for this item never finish, so the agent loops (F5)
 
 # Which shared dependencies each agent uses (used by the doctor's correlator).
 dependencies:
@@ -44,7 +46,7 @@ tools:
   get_purchase_order: procurement
 
 health:
-  interval_s: 60               # golden health checks run this often
+  interval_s: 30               # golden health checks run this often
   first_run_after_s: 5
   healthy_score: 1.0           # score an agent needs to count as recovered after a fix
 
@@ -55,6 +57,13 @@ doctor:
   tool_error_rate: 0.5         # fraction of failed tool calls that counts as a symptom
   tool_error_streak: 3         # this many failures in a row counts as a symptom
   latency_high_ms: 5000        # p95 LLM latency that counts as a symptom
+  min_llm_calls: 2             # LLM calls an agent needs in the window before latency counts
+  loop_repeat: 5               # the same tool call with the same arguments this often in one run = loop
+  token_spike_per_run: 15000   # tokens used by a single run that count as a spike
+  empty_results_rate: 0.5      # share of empty/irrelevant search results that counts as a symptom
+  health_drop_below: 0.75     # golden-check score below this counts as a symptom
+  bad_output_rate: 0.5         # share of invalid upstream outputs (e.g. POs) that counts as a symptom
+  min_outputs: 2
   llm_error_count: 2           # LLM call errors in the window that count as a symptom
   min_runs: 3
   run_failure_rate: 0.5
@@ -65,3 +74,8 @@ doctor:
   max_diagnose_loops: 3        # then escalate to a human
   escalation_cooldown_s: 120   # after escalating, don't reopen the same problem for this long
   half_open_requests: 5        # real test requests that must all succeed before closing a breaker
+  on_demand_checks_s: 20       # on a new incident, health-check every agent (waits at most this long)
+  approval_timeout_s: 300      # how long to wait for a human to approve an approval-tier action
+  safe_max_steps: 4           # step cap set on an agent stuck in a loop
+  safe_token_budget: 6000     # token budget set on an agent stuck in a loop
+  replay_window_s: 180        # how far back replay_run looks for failed runs
