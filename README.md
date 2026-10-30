@@ -79,7 +79,7 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q     # 121 tests, offline, about 4 seconds
+.venv/bin/python -m pytest -q     # 138 tests, offline, about 4 seconds
 ```
 
 | File | What it checks |
@@ -192,3 +192,15 @@ with a score of 1.0 for several rounds in a row.
 - **Scenario checker** (`chaos/scenarios.py check`) approves approval-tier actions automatically and counts a
   scenario as passed when every incident is resolved and the root causes the doctor acted on match the ground
   truth exactly (F10: escalated with no action).
+- **Every fix needs matching evidence** (checked in code after every diagnosis): step caps and kills only with
+  a detected loop or token spike, prompt rollback only if the prompt really changed, model switch only with LLM
+  symptoms, circuit breaker only if the health endpoint reports a failure, index rebuild only if the index
+  check failed, replays only next to a real fix or after a cascade. Dropped fixes are listed on the board.
+- **Proof floor:** when the rules have direct proof of a cause (health endpoint down, the same call repeated
+  5+ times, a new prompt plus failing golden checks, every agent slow), the LLM cannot talk it below the action
+  threshold; the rule's hypothesis is added to the board. The 55% safety caps still apply afterwards.
+- **Backup data is only good data:** empty search results, pending answers or records with missing values
+  are never cached. After a repair, the doctor tests the service with real requests and returns to live data
+  before verifying.
+- **Real models are well behaved:** for F5 the stuck quote answers "retry required", so a real model keeps
+  calling (Haiku: 11 times); with a plain "still pending" it sensibly gave up after 2-3 tries.
