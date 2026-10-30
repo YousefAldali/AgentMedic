@@ -1,10 +1,12 @@
 # Procurement agent: gets vendor quotes, picks the best one, drafts a PO.
 from common.config import service_url
-from fleet.base_agent import BaseAgent, Tool, http_get
+from fleet.base_agent import BaseAgent, Tool, call_dependency, http_get
 
 
 def get_quotes(item: str, quantity: int = 1) -> dict:
-    return http_get(f"{service_url('vendor_api')}/quotes", {"item": item, "quantity": quantity})
+    data = call_dependency("vendor_api", item.lower(), lambda: http_get(
+        f"{service_url('vendor_api')}/quotes", {"item": item, "quantity": quantity}))
+    return {**data, "quantity": quantity}
 
 
 class ProcurementAgent(BaseAgent):
