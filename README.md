@@ -107,3 +107,11 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 - **Escalation instead of guessing.** Without confirmation from a health endpoint, tool errors alone can
   never push an outage hypothesis to the 60% action threshold. Mixed 4xx/5xx errors add a competing
   "bad requests" hypothesis. After escalating, the same problem does not reopen an incident for 120 s.
+- **Safety rules in code after every diagnosis** (LLM or rules): a hypothesis whose fix touches a service is
+  capped at 55% when that service's health endpoint says it is healthy or its errors mix 4xx and 5xx.
+  The cap is keyed on the fix target, not on the wording. If the root cause has no allowed action,
+  the doctor escalates at once.
+- **Half-open check before closing a breaker:** 5 real requests to the service must all succeed;
+  the health endpoint alone is not trusted.
+- **F10 is deterministic:** the flaky vendor fails every 2nd request and the tool garbles every 3rd call,
+  and the vendor API rejects unknown items before any backend fault, so both error types always appear.
