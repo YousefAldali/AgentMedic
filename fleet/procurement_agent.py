@@ -1,14 +1,22 @@
 # Procurement agent: gets vendor quotes, picks the best one, drafts a PO.
-import random
+import itertools
+import threading
 
 from common import db
 from common.config import service_url
 from fleet.base_agent import BaseAgent, Tool, call_dependency, http_get
 
 
+_calls = itertools.count(1)
+_lock = threading.Lock()
+
+
 def get_quotes(item: str, quantity: int = 1) -> dict:
     sent = item
-    if random.random() < db.get_control("chaos.procurement.bad_item_rate", 0):
+    every = db.get_control("chaos.procurement.bad_item_every", 0)
+    with _lock:
+        n = next(_calls)
+    if every and n % every == 0:
         # Chaos hook (F10): a misbehaving tool sends a garbled item name -> 404 from the vendor API.
         sent = item.rstrip("s") + "-x"
     data = call_dependency("vendor_api", item.lower(), lambda: http_get(
