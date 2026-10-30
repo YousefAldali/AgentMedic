@@ -77,12 +77,37 @@ def rule_board(candidates: list[Candidate], ctx: dict) -> Board:
             against = [] if confirmed else [f"{c.dependency} health endpoint reports the service healthy"]
             if c.healthy_agents:
                 against.append(f"other agents using {c.dependency} are healthy: {', '.join(c.healthy_agents)}")
+            err = c.errors or {"total": 0, "4xx": 0, "5xx": 0, "other": 0}
+            if err["5xx"]:
+                evidence.append(f"{err['5xx']} of {err['total']} errors are 5xx server errors")
+            if err["4xx"]:
+                against.append(f"{err['4xx']} of {err['total']} errors are 4xx (requests the service rejected), "
+                               "which an outage does not cause")
+            # The health endpoint is the strongest evidence. Without it, errors alone can
+            # never push an outage hypothesis to the action threshold.
+            share_5xx = err["5xx"] / err["total"] if err["total"] else 0
+            confidence = 0.9 if confirmed else round(min(0.55, 0.25 + 0.3 * share_5xx), 2)
             fix = ([Fix(action="open_circuit_breaker", target=c.dependency),
                     Fix(action="enable_fallback", target=c.dependency)] if status in SERVICE_FAILING else [])
             hyps.append(Hypothesis(
                 cause=f"{c.dependency} outage (status={status})", affected_agents=c.agents,
                 evidence_for=evidence, evidence_against=against,
-                confidence=0.9 if confirmed else 0.4, proposed_fix=fix))
+                confidence=confidence, proposed_fix=fix))
+            if err["4xx"]:
+                share_4xx = err["4xx"] / err["total"]
+                bad_against = []
+                if err["5xx"]:
+                    bad_against.append(f"{err['5xx']} errors are 5xx server errors, which bad requests do not explain")
+                if confirmed:
+                    bad_against.append(f"{c.dependency} health endpoint confirms a real failure (status={status})")
+                hyps.append(Hypothesis(
+                    cause=f"{', '.join(c.agents)} tool sending bad requests to {c.dependency}",
+                    affected_agents=c.agents,
+                    evidence_for=[f"{err['4xx']} of {err['total']} errors are 4xx: the service rejected the requests"]
+                    + [e for s in c.symptoms for e in s.evidence if "HTTP 4" in e][:1],
+                    evidence_against=bad_against,
+                    confidence=round(min(0.55, 0.25 + 0.3 * share_4xx), 2),
+                    proposed_fix=[]))
         elif c.dependency == "llm":
             hyps.append(Hypothesis(
                 cause="LLM endpoint degraded", affected_agents=c.agents, evidence_for=evidence,
