@@ -17,11 +17,32 @@ ACTION_AR = {
     "close_circuit_breaker": "إغلاق قاطع الدائرة",
     "enable_fallback": "تفعيل البيانات الاحتياطية المخزنة",
     "disable_fallback": "إيقاف البيانات الاحتياطية",
+    "switch_model": "التحويل إلى النموذج الاحتياطي",
+    "kill_run": "إيقاف التشغيل العالق",
+    "set_step_cap": "تحديد عدد الخطوات والرموز",
+    "replay_run": "إعادة تشغيل المهام الفاشلة",
+    "rollback_prompt": "استرجاع آخر تعليمات سليمة",
+    "rebuild_index": "إعادة بناء فهرس البحث",
 }
 PREVENTION = {
     "open_circuit_breaker": (
         "Keep a circuit breaker on every external dependency so outages fail fast instead of causing retry storms.",
         "إبقاء قاطع دائرة على كل خدمة خارجية حتى يتوقف الطلب بسرعة عند العطل بدل تكرار المحاولات."),
+    "rollback_prompt": (
+        "Run the golden health checks before any prompt change goes live, and roll back automatically if they fail.",
+        "تشغيل فحوص الصحة الذهبية قبل نشر أي تغيير في التعليمات، والتراجع تلقائيًا عند فشلها."),
+    "rebuild_index": (
+        "Verify the search index after every rebuild with known queries, and alert on empty results.",
+        "التحقق من فهرس البحث بعد كل إعادة بناء باستعلامات معروفة، والتنبيه عند ظهور نتائج فارغة."),
+    "switch_model": (
+        "Keep a warm backup model and alert on LLM latency per model, not only per agent.",
+        "إبقاء نموذج احتياطي جاهز ومراقبة زمن استجابة كل نموذج على حدة."),
+    "set_step_cap": (
+        "Give every agent a default step cap and token budget, and alert on repeated identical tool calls.",
+        "تحديد سقف افتراضي للخطوات والرموز لكل وكيل، والتنبيه عند تكرار نفس الاستدعاء."),
+    "replay_run": (
+        "Validate upstream output (e.g. PO totals) before downstream agents consume it.",
+        "التحقق من مخرجات الوكيل السابق (مثل إجمالي أمر الشراء) قبل أن يستخدمها الوكيل التالي."),
     "enable_fallback": (
         "Keep a warm cache of the last good data and alert when it is older than an agreed limit.",
         "الاحتفاظ بنسخة مخزنة من آخر بيانات سليمة والتنبيه عند تجاوزها العمر المسموح."),
