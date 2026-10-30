@@ -1,11 +1,10 @@
-"""Shared fault switch for the mock services.
-
-Each service gets:
-  POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}  (used by chaos/ and the demo panel)
-  GET  /admin/chaos                                                (current mode, for the chaos panel)
-Business endpoints call `chaos.check()` first. `/admin/*` is never affected by chaos,
-so the doctor can always read true state from `/admin/state`.
-"""
+# Shared fault switch for the mock services.
+#
+# Each service gets:
+#   POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}  (used by chaos/ and the demo panel)
+#   GET  /admin/chaos                                                (current mode, for the chaos panel)
+# Business endpoints call `chaos.check()` first. `/admin/*` is never affected by chaos,
+# so the doctor can always read true state from `/admin/state`.
 import time
 from typing import Literal
 
@@ -37,7 +36,7 @@ class Chaos:
             return {"service": self.service, "mode": self.mode}
 
     def check(self) -> bool:
-        """Apply the current fault. Returns True if the response should be corrupted."""
+        # Apply the current fault. Returns True if the response should be corrupted.
         if self.mode == "down":
             raise HTTPException(503, f"{self.service} unavailable")
         if self.mode == "error_500":
@@ -47,6 +46,6 @@ class Chaos:
         return self.mode == "corrupt"
 
     def status(self) -> str:
-        """Health status as a real service's health endpoint would report it."""
+        # Health status as a real service's health endpoint would report it.
         return {"none": "up", "down": "down", "slow": "degraded",
                 "error_500": "erroring", "corrupt": "up"}[self.mode]

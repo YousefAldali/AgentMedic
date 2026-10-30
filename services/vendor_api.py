@@ -1,4 +1,4 @@
-"""Mock vendor API: price quotes per catalog item."""
+# Mock vendor API: price quotes per catalog item.
 import json
 
 from fastapi import FastAPI, HTTPException

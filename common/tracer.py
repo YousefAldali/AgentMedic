@@ -1,4 +1,4 @@
-"""Writes agent runs and spans (every LLM call and tool call) to SQLite."""
+# Writes agent runs and spans (every LLM call and tool call) to SQLite.
 import json
 import time
 import uuid

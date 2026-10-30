@@ -1,9 +1,8 @@
-"""Scripted, deterministic LLM replies for MOCK_LLM=1.
-
-Each agent has a small "planner" that looks at the task and the tool results
-so far, and returns either tool calls or a final answer, the same way a real
-model would. Replies are in Arabic when the task is in Arabic.
-"""
+# Scripted, deterministic LLM replies for MOCK_LLM=1.
+#
+# Each agent has a small "planner" that looks at the task and the tool results
+# so far, and returns either tool calls or a final answer, the same way a real
+# model would. Replies are in Arabic when the task is in Arabic.
 import json
 import re
 import uuid
@@ -112,7 +111,7 @@ PLANNERS = {"hr": _hr, "procurement": _procurement}
 
 
 def mock_reply(agent: str, messages: list[dict], tools: list[dict]):
-    """Return (content, tool_calls) for one scripted model turn."""
+    # Return (content, tool_calls) for one scripted model turn.
     task = _task(messages)
     planner = PLANNERS.get(agent)
     if planner is None:

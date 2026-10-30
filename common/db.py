@@ -1,5 +1,5 @@
-"""SQLite schema and small helpers. One short-lived connection per call keeps
-it safe to use from many threads and processes at once (WAL mode)."""
+# SQLite schema and small helpers. One short-lived connection per call keeps
+# it safe to use from many threads and processes at once (WAL mode).
 import json
 import sqlite3
 from typing import Any
@@ -66,7 +66,7 @@ def init_db(reset: bool = False) -> None:
 
 
 def execute(sql: str, params: tuple = ()) -> int:
-    """Run a write statement and return the last row id."""
+    # Run a write statement and return the last row id.
     conn = connect()
     try:
         cur = conn.execute(sql, params)

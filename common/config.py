@@ -1,4 +1,4 @@
-"""Loads config.yaml and .env once. Every module reads settings from here."""
+# Loads config.yaml and .env once. Every module reads settings from here.
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -19,7 +19,7 @@ def get_config() -> dict:
 
 
 def env(name: str, default: str | None = None) -> str | None:
-    """Read an env var, treating empty strings as unset."""
+    # Read an env var, treating empty strings as unset.
     value = os.getenv(name)
     return value if value not in (None, "") else default
 

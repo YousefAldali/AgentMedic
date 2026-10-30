@@ -1,4 +1,4 @@
-"""Procurement agent: gets vendor quotes, picks the best one, drafts a PO."""
+# Procurement agent: gets vendor quotes, picks the best one, drafts a PO.
 from common.config import service_url
 from fleet.base_agent import BaseAgent, Tool, http_get
 

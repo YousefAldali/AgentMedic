@@ -1,10 +1,9 @@
-"""Start everything with one command.
-
-    python run.py                  # services + fleet workload (Ctrl+C to stop)
-    python run.py --reset          # wipe traces.db first
-    python run.py --services-only  # only the mock services
-    python run.py --seconds 30     # stop automatically after 30 s
-"""
+# Start everything with one command.
+#
+# python run.py                  # services + fleet workload (Ctrl+C to stop)
+# python run.py --reset          # wipe traces.db first
+# python run.py --services-only  # only the mock services
+# python run.py --seconds 30     # stop automatically after 30 s
 import argparse
 import signal
 import subprocess

@@ -1,14 +1,13 @@
-"""LLM gateway. Every agent and the doctor call `chat()`.
-
-- Real mode: any OpenAI-compatible endpoint, configured by env vars
-  (LLM_BASE_URL, LLM_API_KEY, FLEET_MODEL, DOCTOR_MODEL, BACKUP_MODEL).
-- MOCK_LLM=1: deterministic scripted replies from common/mock_llm.py.
-- Chaos hook: control key "llm.chaos" = {"mode": "none|slow|rate_limit", "latency_ms": N}
-  degrades the PRIMARY model only.
-- Fix hook: control key "llm.route_to_backup" = true sends fleet calls to BACKUP_MODEL.
-
-Messages and tools use the OpenAI chat format.
-"""
+# LLM gateway. Every agent and the doctor call `chat()`.
+#
+# - Real mode: any OpenAI-compatible endpoint, configured by env vars
+#   (LLM_BASE_URL, LLM_API_KEY, FLEET_MODEL, DOCTOR_MODEL, BACKUP_MODEL).
+# - MOCK_LLM=1: deterministic scripted replies from common/mock_llm.py.
+# - Chaos hook: control key "llm.chaos" = {"mode": "none|slow|rate_limit", "latency_ms": N}
+#   degrades the PRIMARY model only.
+# - Fix hook: control key "llm.route_to_backup" = true sends fleet calls to BACKUP_MODEL.
+#
+# Messages and tools use the OpenAI chat format.
 import json
 import time
 from dataclasses import dataclass, field
@@ -18,7 +17,8 @@ from common.config import env, get_config, mock_llm
 
 
 class LLMError(Exception):
-    """The LLM call failed (rate limit, timeout, bad response...)."""
+    # The LLM call failed (rate limit, timeout, bad response...).
+    pass
 
 
 @dataclass
@@ -54,7 +54,7 @@ def _openai_client():
 
 
 def pick_model(role: str) -> tuple[str, bool]:
-    """Return (model name, is_primary) for a caller role: 'fleet' or 'doctor'."""
+    # Return (model name, is_primary) for a caller role: 'fleet' or 'doctor'.
     if role == "doctor":
         return env("DOCTOR_MODEL", "mock-doctor"), False
     if db.get_control("llm.route_to_backup", False):

@@ -1,9 +1,8 @@
-"""Minimal tool-calling agent loop. Every LLM call and tool call is traced.
-
-Step cap and token budget can be changed at runtime through the control table
-(keys "agent.<name>.max_steps" / "agent.<name>.token_budget"), which is how
-the doctor will stop runaway loops.
-"""
+# Minimal tool-calling agent loop. Every LLM call and tool call is traced.
+#
+# Step cap and token budget can be changed at runtime through the control table
+# (keys "agent.<name>.max_steps" / "agent.<name>.token_budget"), which is how
+# the doctor will stop runaway loops.
 import json
 import time
 from dataclasses import dataclass
@@ -16,7 +15,8 @@ from common.config import get_config
 
 
 class ToolError(Exception):
-    """A tool failed; the error is shown to the model as the tool result."""
+    # A tool failed; the error is shown to the model as the tool result.
+    pass
 
 
 @dataclass
@@ -26,7 +26,7 @@ class Tool:
 
 
 def http_get(url: str, params: dict | None = None) -> dict:
-    """GET a JSON endpoint, turning any failure into a ToolError."""
+    # GET a JSON endpoint, turning any failure into a ToolError.
     try:
         r = httpx.get(url, params=params, timeout=get_config()["agents"]["tool_timeout_s"])
     except httpx.HTTPError as e:

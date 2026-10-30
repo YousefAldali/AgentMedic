@@ -1,8 +1,7 @@
-"""Mock knowledge base: TF-IDF search over EN/AR markdown docs in data/kb/.
-
-Arabic text gets light normalization (strip diacritics, unify alef/yaa/taa
-marbuta, drop the "ال" prefix) so simple word matching works in both languages.
-"""
+# Mock knowledge base: TF-IDF search over EN/AR markdown docs in data/kb/.
+#
+# Arabic text gets light normalization (strip diacritics, unify alef/yaa/taa
+# marbuta, drop the "ال" prefix) so simple word matching works in both languages.
 import math
 import random
 import re
@@ -92,7 +91,7 @@ def search(q: str, k: int = 3):
 
 @app.post("/admin/rebuild")
 def rebuild():
-    """Rebuild the index from the source docs (this also clears index corruption)."""
+    # Rebuild the index from the source docs (this also clears index corruption).
     INDEX.build()
     if chaos.mode == "corrupt":
         chaos.mode = "none"

@@ -1,4 +1,4 @@
-"""HR agent: answers leave-balance and policy questions (HR DB + knowledge base)."""
+# HR agent: answers leave-balance and policy questions (HR DB + knowledge base).
 from common.config import service_url
 from fleet.base_agent import BaseAgent, Tool, http_get
 

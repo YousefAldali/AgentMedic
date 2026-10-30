@@ -1,4 +1,4 @@
-"""Mock HR database: employees, leave balances, policies."""
+# Mock HR database: employees, leave balances, policies.
 import json
 
 from fastapi import FastAPI, HTTPException

@@ -1,4 +1,4 @@
-"""Sends a steady stream of realistic English and Arabic tasks to the fleet."""
+# Sends a steady stream of realistic English and Arabic tasks to the fleet.
 import itertools
 import random
 import threading

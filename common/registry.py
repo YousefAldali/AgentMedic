@@ -1,4 +1,4 @@
-"""Prompt registry (versioned prompts per agent) and the dependency map."""
+# Prompt registry (versioned prompts per agent) and the dependency map.
 import json
 import time
 
@@ -7,7 +7,7 @@ from common.config import DATA_DIR, get_config
 
 
 def seed_prompts() -> None:
-    """Load data/prompts.json into the registry if the agent has no prompts yet."""
+    # Load data/prompts.json into the registry if the agent has no prompts yet.
     seeds = json.loads((DATA_DIR / "prompts.json").read_text(encoding="utf-8"))
     for agent, versions in seeds.items():
         if db.query("SELECT 1 FROM prompts WHERE agent = ? LIMIT 1", (agent,)):
@@ -54,10 +54,10 @@ def list_versions(agent: str) -> list[dict]:
 
 
 def dependencies() -> dict[str, list[str]]:
-    """{agent: [shared dependencies]}"""
+    # {agent: [shared dependencies]}
     return get_config().get("dependencies") or {}
 
 
 def upstream() -> dict[str, list[str]]:
-    """{agent: [agents whose output it consumes]}"""
+    # {agent: [agents whose output it consumes]}
     return get_config().get("upstream") or {}
