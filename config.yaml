@@ -22,6 +22,8 @@ llm:
 
 chaos:
   slow_delay_s: 4              # delay added by the "slow" fault mode
+  flaky_error_rate: 0.5        # share of requests that fail in the "flaky" mode
+  bad_item_rate: 0.35          # share of calls the misbehaving tool garbles (F10)
 
 # Which shared dependencies each agent uses (used by the doctor's correlator).
 dependencies:
@@ -52,3 +54,4 @@ doctor:
   verify_interval_s: 3
   verify_max_rounds: 8
   max_diagnose_loops: 3        # then escalate to a human
+  escalation_cooldown_s: 120   # after escalating, don't reopen the same problem for this long
