@@ -4,10 +4,12 @@ import random
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
-from common.config import get_config
-from fleet.base_agent import BaseAgent
+import httpx
+
+from common.config import get_config, service_url
+from fleet.base_agent import BaseAgent, ToolError
 from fleet.hr_agent import HRAgent
-from fleet.procurement_agent import ProcurementAgent
+from fleet.procurement_agent import ProcurementAgent, get_quotes
 
 TASKS = {
     "hr": [
@@ -39,14 +41,26 @@ def _run_one(agent: BaseAgent, task: str) -> None:
         result = agent.run(task)
         answer = (result["answer"] or "").replace("\n", " ")[:90]
         print(f"[{agent.name:<11}] {result['status']:<7} {task[:45]:<45} -> {answer}", flush=True)
-    except Exception as e:
+    except Exception as e:  # keep the workload alive no matter what
         print(f"[{agent.name:<11}] CRASH  {task[:45]} -> {type(e).__name__}: {e}", flush=True)
+
+
+def warm_cache() -> None:
+    # Fetch every catalog item once at startup so the quote cache is complete
+    # before any fault can happen (a normal cache warm-up).
+    try:
+        items = httpx.get(f"{service_url('vendor_api')}/admin/state", timeout=3).json()["items"]
+        for item in items:
+            get_quotes(item, 1)
+    except (httpx.HTTPError, ToolError, KeyError) as e:
+        print(f"cache warm-up skipped: {e}", flush=True)
 
 
 def run_forever(stop: threading.Event) -> None:
     cfg = get_config()["workload"]
+    warm_cache()
     fleet = build_fleet()
-    order = itertools.cycle(fleet)
+    order = itertools.cycle(fleet)  # round-robin so every agent gets traffic
     with ThreadPoolExecutor(max_workers=cfg["max_concurrent"]) as pool:
         while not stop.is_set():
             name = next(order)
