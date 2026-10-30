@@ -1,5 +1,5 @@
 # Sends a steady stream of realistic English and Arabic tasks to the fleet.
-import random
+import itertools
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -40,10 +40,15 @@ TASKS = {
 }
 
 
+# Each agent goes through its task list in a fixed rotation, so every kind of request
+# (e.g. the printers quote that F5 breaks) comes up at least once per round.
+_rotation = {agent: itertools.cycle(tasks) for agent, tasks in TASKS.items()}
+
+
 def next_task(agent: str) -> str:
     if agent == "finance":
         return invoice_task()
-    return random.choice(TASKS[agent])
+    return next(_rotation[agent])
 
 
 def build_fleet() -> dict[str, BaseAgent]:
