@@ -83,6 +83,7 @@ INDEX.build()
 def search(q: str, k: int = 3):
     corrupt = chaos.check()
     if corrupt:
+        # A corrupted index returns unrelated documents (or nothing).
         junk = random.sample(INDEX.docs, k=min(1, len(INDEX.docs))) if random.random() < 0.5 else []
         return {"query": q, "results": [{"doc_id": d["doc_id"], "title": d["title"],
                                           "snippet": "", "score": 0.0} for d in junk]}
