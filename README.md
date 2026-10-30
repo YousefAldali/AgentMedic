@@ -4,7 +4,7 @@ An AI agent that monitors a fleet of enterprise AI agents, detects when they fai
 diagnoses the root cause (including several faults at once), fixes them safely,
 verifies recovery, and writes an incident report in English and Arabic.
 
-> Status: **Phase 2 (first vertical slice)** — the doctor detects, diagnoses, fixes and verifies a Vendor API outage (F1) on its own and writes an EN/AR report.
+> Status: **Phase 3 (full fleet + health checks)** — 4 agents, golden health checks on a schedule and after every fix, dependency map with the finance ← procurement hand-off. The doctor handles F1 (fix) and F10 (escalate).
 
 ## Setup
 
@@ -56,7 +56,7 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q     # 69 tests, offline, about 1 second
+.venv/bin/python -m pytest -q     # 98 tests, offline, about 3 seconds
 ```
 
 | File | What it checks |
@@ -67,6 +67,23 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 | `tests/test_actions.py` | safety tiers: destructive actions refused, approvals wait, every action can be undone |
 | `tests/test_doctor.py` | fix vs escalate, no fix -> escalate at once, cooldown, the 5-request check before closing a breaker |
 | `tests/test_faults.py` | the F10 fault itself, and the agent's circuit breaker and cache |
+| `tests/test_golden.py` | golden answer checks, health scores, the finance agent and the procurement → finance hand-off |
+
+## The fleet
+
+| Agent | Job | Uses |
+|---|---|---|
+| HR | leave balances and HR policies | HR DB, Knowledge Base, LLM |
+| Procurement | compares vendor quotes, drafts a purchase order | Vendor API, LLM |
+| Finance | validates invoices against Procurement's purchase orders | Procurement's output, LLM |
+| Support | answers customer questions from the knowledge base | Knowledge Base, LLM |
+
+## Golden health checks
+
+Each agent has 3-4 questions with known correct answers in `fleet/golden/<agent>.json` (English and Arabic).
+They catch silent failures: nothing errors, but the answers are wrong. Score = fraction passed.
+They run every 60 s (`[health]` lines in the log) and after every fix: an agent counts as recovered only
+with a score of 1.0 for several rounds in a row.
 
 ## Environment variables
 
@@ -130,3 +147,11 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
   the health endpoint alone is not trusted.
 - **F10 is deterministic:** the flaky vendor fails every 2nd request and the tool garbles every 3rd call,
   and the vendor API rejects unknown items before any backend fault, so both error types always appear.
+- **Purchase order store:** Procurement saves every PO it drafts (malformed ones marked invalid) in
+  `purchase_orders`; Finance reads them. This is the cascade path for fault F6 later.
+- **Golden checks use simple matchers** (regex, keywords, JSON fields), no LLM judge: free, fast, and the same
+  every run. A shut-down mid-check saves nothing, so it never shows up as a fake low score.
+- **Knowledge base search returns the best-matching paragraph first, then the rest of the short document**,
+  so answers are not cut off at the wrong paragraph.
+- **Workload:** every agent gets one new task every 6 s (staggered), so each agent's traffic stays the same
+  as more agents are added.
