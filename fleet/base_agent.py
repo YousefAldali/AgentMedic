@@ -2,7 +2,8 @@
 #
 # Step cap and token budget can be changed at runtime through the control table
 # (keys "agent.<name>.max_steps" / "agent.<name>.token_budget"), which is how
-# the doctor will stop runaway loops.
+# the doctor will stop runaway loops. "agent.<name>.kill_before" = a timestamp kills every
+# run of that agent that started before it, at its next step.
 import json
 import time
 from dataclasses import dataclass
@@ -75,12 +76,17 @@ class BaseAgent:
                     {"role": "user", "content": task}]
         schemas = [t.schema for t in self.tools.values()]
         total_tokens, step = 0, 0
+        started = time.time()
 
         def finish(status: str, answer: str | None = None) -> dict:
             tracer.end_run(run_id, status, total_tokens, step)
             return {"run_id": run_id, "agent": self.name, "status": status, "answer": answer}
 
         for step in range(1, max_steps + 1):
+            if db.get_control(f"agent.{self.name}.kill_before", 0) > started:
+                tracer.log_span(run_id, self.name, step, "error", error="run killed by the doctor",
+                                prompt_version=version)
+                return finish("killed")
             try:
                 resp = llm.chat(messages, schemas, agent=self.name)
             except llm.LLMError as e:
