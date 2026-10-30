@@ -9,8 +9,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from common import db
-from common.config import env
+from common import db, registry
+from common.config import env, get_config
 
 AUTO, APPROVAL, FORBIDDEN = "auto", "approval", "forbidden"
 FORBIDDEN_WORDS = ("delete", "drop", "truncate", "wipe", "purge", "credential", "password", "edit_record")
@@ -69,6 +69,8 @@ def execute(name: str, target: str, incident_id: int | None, approved_by: str | 
         out.update(status="refused", detail="forbidden action: never destructive")
     elif tier is None:
         out.update(status="unavailable", detail="not a registered action")
+    elif target not in set(get_config()["services"]) | set(registry.dependencies()) | {"llm"}:
+        out.update(status="unavailable", detail=f"unknown target '{target}'")
     elif tier == APPROVAL and not approved_by:
         if env("AUTO_APPROVE", "0") == "1":
             approved_by = "auto-approve"
