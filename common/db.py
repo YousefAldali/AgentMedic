@@ -12,6 +12,7 @@ from common.config import db_path
 # and the doctor change from their own processes and the agents read on every run.
 # cache: last good response per dependency and key, served when a fallback is enabled.
 # purchase_orders: procurement's output, read by the finance agent (the cascade path).
+# approvals: approval-tier actions waiting for a human click (dashboard or CLI).
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY, agent TEXT, task TEXT,
@@ -53,6 +54,10 @@ CREATE TABLE IF NOT EXISTS control (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS purchase_orders (
     po_id TEXT PRIMARY KEY, run_id TEXT, item TEXT, quantity INTEGER, vendor TEXT,
     unit_price REAL, total REAL, currency TEXT, raw TEXT, valid INTEGER, ts REAL
+);
+CREATE TABLE IF NOT EXISTS approvals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, incident_id INTEGER, action TEXT, target TEXT,
+    reason TEXT, status TEXT, decided_by TEXT, requested_at REAL, decided_at REAL
 );
 CREATE TABLE IF NOT EXISTS cache (
     dependency TEXT, key TEXT, value TEXT, ts REAL,
