@@ -141,6 +141,9 @@ class Doctor:
             db.execute("UPDATE incidents SET actions = ? WHERE id = ?",
                        (json.dumps(done_actions, default=str), incident_id))
 
+            # A repaired service (e.g. a rebuilt index) goes back to live data now, if real
+            # test requests succeed, instead of staying on backup data while we verify.
+            self.restore_dependencies()
             fix_time = time.time()
             agents = sorted({a for h in causes for a in h.affected_agents})
             recovered, rounds = verify(agents, fix_time, lambda r: event(
