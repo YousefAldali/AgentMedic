@@ -50,7 +50,11 @@ def _trailing_errors(results: list[dict]) -> int:
 
 
 # ---------------------------------------------------------------- HR agent
-def _hr(task: str, results: list[dict], ar: bool):
+def _hr(task: str, results: list[dict], ar: bool, system: str = ""):
+    if "do not call any tools" in system:
+        # A bad prompt: answers from "general knowledge" - confident, fluent and wrong.
+        return ("لكل موظف 30 يومًا من الإجازة سنويًا، والسياسات قياسية." if ar
+                else "Every employee has 30 days of leave per year, and the policies are standard."), []
     emp = re.search(r"\bE\d{3}\b", task)
     asks_leave = bool(re.search(r"leave|vacation|إجاز|رصيد", task, re.I))
     if not results or (results[-1].get("error") and _trailing_errors(results) < MAX_TOOL_RETRIES):
@@ -79,8 +83,11 @@ def _parse_order(task: str) -> tuple[str, int]:
     return "laptops", int(qty.group()) if qty else 1
 
 
-def _procurement(task: str, results: list[dict], ar: bool):
+def _procurement(task: str, results: list[dict], ar: bool, system: str = ""):
     item, qty = _parse_order(task)
+    if results and results[-1].get("status") == "pending":
+        # The tool says the quote is still being prepared: ask again (forever, if it never finishes).
+        return None, [_call("get_quotes", item=item, quantity=qty)]
     if not results or (results[-1].get("error") and _trailing_errors(results) < MAX_TOOL_RETRIES):
         return None, [_call("get_quotes", item=item, quantity=qty)]
 
@@ -96,7 +103,8 @@ def _procurement(task: str, results: list[dict], ar: bool):
     po = {
         "po_id": f"PO-{uuid.uuid4().hex[:6].upper()}",
         "item": item, "quantity": qty, "vendor": best["vendor"],
-        "unit_price": best["unit_price"], "total": round(best["unit_price"] * qty, 2),
+        "unit_price": best["unit_price"],
+        "total": best["unit_price"] if "do not multiply" in system else round(best["unit_price"] * qty, 2),
         "currency": "SAR",
     }
     summary = (f"أفضل عرض من {best['vendor']} بسعر {best['unit_price']} ريال للوحدة. تم تجهيز أمر الشراء." if ar
@@ -115,7 +123,7 @@ def _kb_answer(result: dict, ar: bool):
             else f"According to \"{top['title']}\": {top['snippet']}"), []
 
 
-def _support(task: str, results: list[dict], ar: bool):
+def _support(task: str, results: list[dict], ar: bool, system: str = ""):
     if not results or (results[-1].get("error") and _trailing_errors(results) < MAX_TOOL_RETRIES):
         return None, [_call("search_knowledge_base", query=task)]
     if "error" in results[-1]:
@@ -125,7 +133,7 @@ def _support(task: str, results: list[dict], ar: bool):
 
 
 # ---------------------------------------------------------- Finance agent
-def _finance(task: str, results: list[dict], ar: bool):
+def _finance(task: str, results: list[dict], ar: bool, system: str = ""):
     po_id = re.search(r"PO-[A-Z0-9]+", task)
     inv = re.search(r"INV-\d+", task)
     amount = re.search(r"([\d,.]+)\s*(?:SAR|ريال)", task)
@@ -166,4 +174,5 @@ def mock_reply(agent: str, messages: list[dict], tools: list[dict]):
     planner = PLANNERS.get(agent)
     if planner is None:
         return f"[mock] No script for agent '{agent}'.", []
-    return planner(task, _tool_results(messages), bool(ARABIC.search(task)))
+    system = next((m["content"] for m in messages if m["role"] == "system"), "")
+    return planner(task, _tool_results(messages), bool(ARABIC.search(task)), system)
