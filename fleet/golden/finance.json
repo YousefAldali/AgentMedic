@@ -1,0 +1,8 @@
+[
+  {"question": "Validate invoice INV-9001 from eXtra Enterprise for 39500 SAR against PO-GOLD01.",
+   "expect": {"json": {"decision": "approved"}}},
+  {"question": "Validate invoice INV-9002 from eXtra Enterprise for 45000 SAR against PO-GOLD01.",
+   "expect": {"json": {"decision": "rejected"}}},
+  {"question": "تحقق من الفاتورة INV-9003 من eXtra Enterprise بمبلغ 39500 ريال مقابل أمر الشراء PO-GOLD01.",
+   "expect": {"json": {"decision": "approved"}}}
+]
