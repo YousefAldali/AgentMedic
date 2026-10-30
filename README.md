@@ -4,7 +4,7 @@ An AI agent that monitors a fleet of enterprise AI agents, detects when they fai
 diagnoses the root cause (including several faults at once), fixes them safely,
 verifies recovery, and writes an incident report in English and Arabic.
 
-> Status: **Phase 3 (full fleet + health checks)** — 4 agents, golden health checks on a schedule and after every fix, dependency map with the finance ← procurement hand-off. The doctor handles F1 (fix) and F10 (escalate).
+> Status: **Phase 4 (all faults + multi-fault)** — faults F1–F6 and F10, multi-fault scenarios S7–S10, approval tier, verify-and-retry loop, and an unattended scenario checker.
 
 ## Setup
 
@@ -34,6 +34,29 @@ In a second terminal while `run.py` is running:
 .venv/bin/python -m chaos.faults reset F1    # fix the Vendor API; the doctor closes the breaker (RESTORE)
 ```
 
+## Faults and scenarios
+
+| Fault | What breaks | What the doctor should see | Correct fix |
+|---|---|---|---|
+| F1 | Vendor API down | tool errors, retry storm in Procurement | circuit breaker + cached quotes (auto) |
+| F2 | bad HR prompt deployed | no errors, HR golden checks fail | roll back to the known-good prompt (approval) |
+| F3 | knowledge base index corrupted | empty/irrelevant search results for Support and HR | rebuild the index (approval) |
+| F4 | primary LLM slow | latency up on every agent | switch to the backup model (auto) |
+| F5 | a vendor quote job never finishes | same tool call repeated, token spike | kill the run + step/token cap (auto) |
+| F6 | bad procurement prompt writes wrong PO totals | Finance fails on Procurement's output | roll back Procurement's prompt, then replay both (approval + auto) |
+| F10 | partial outage + misbehaving tool, health check says "up" | mixed 404/503 errors | escalate to a human, no action |
+
+Scenarios: every fault alone, plus **S7** = F1+F2, **S8** = F4+F3, **S9** = F6+F5, **S10** = F1+F2+F3.
+
+```bash
+.venv/bin/python -m chaos.scenarios list
+.venv/bin/python -m chaos.scenarios inject S7     # while run.py is running
+.venv/bin/python -m doctor.approvals              # list actions waiting for approval
+.venv/bin/python -m doctor.approvals approve 1    # approve one (the dashboard will have a button)
+.venv/bin/python -m chaos.faults reset-all        # back to healthy
+.venv/bin/python -m chaos.scenarios check         # run every scenario unattended and score the doctor
+```
+
 ## Try escalation (fault F10: ambiguous evidence)
 
 ```bash
@@ -56,7 +79,7 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q     # 98 tests, offline, about 3 seconds
+.venv/bin/python -m pytest -q     # 121 tests, offline, about 4 seconds
 ```
 
 | File | What it checks |
@@ -67,6 +90,7 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 | `tests/test_actions.py` | safety tiers: destructive actions refused, approvals wait, every action can be undone |
 | `tests/test_doctor.py` | fix vs escalate, no fix -> escalate at once, cooldown, the 5-request check before closing a breaker |
 | `tests/test_faults.py` | the F10 fault itself, and the agent's circuit breaker and cache |
+| `tests/test_phase4.py` | loop, token, empty-result, health-drop and cascade detectors; multi-fault diagnosis; new actions; approvals |
 | `tests/test_golden.py` | golden answer checks, health scores, the finance agent and the procurement → finance hand-off |
 
 ## The fleet
@@ -155,3 +179,16 @@ with a score of 1.0 for several rounds in a row.
   so answers are not cut off at the wrong paragraph.
 - **Workload:** every agent gets one new task every 6 s (staggered), so each agent's traffic stays the same
   as more agents are added.
+- **On a new incident the doctor health-checks every agent at once** (waiting at most 20 s), so problems that
+  only show up in answers (a bad prompt) land on the same hypothesis board as the ones that show up as errors.
+- **Fix order:** automatic fixes first (contain the damage), then approval-tier fixes (the doctor waits for a
+  human, up to 5 minutes), then replays of failed work once the cause is fixed.
+- **F5 (runaway loop)** is a quote job that never finishes for one item (printers): the agent keeps asking.
+  The doctor kills the running loops and caps steps and tokens; a human still has to fix the vendor job.
+- **F6 (cascade)** is a bad procurement prompt that writes wrong PO totals. Invoices bill the real amount, so
+  Finance can't match them. Replay regenerates the bad POs under the same PO ids, then re-runs Finance.
+- **Bad prompts are deployed as new prompt versions** (`data/bad_prompts.json`), so the doctor sees "v2 went
+  live N s before the first symptom" and can roll back to the last known-good version.
+- **Scenario checker** (`chaos/scenarios.py check`) approves approval-tier actions automatically and counts a
+  scenario as passed when every incident is resolved and the root causes the doctor acted on match the ground
+  truth exactly (F10: escalated with no action).
