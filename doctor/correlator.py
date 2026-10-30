@@ -2,6 +2,7 @@
 # One dependency hurting several agents -> shared-cause candidate.
 # One dependency hurting one agent -> independent-cause candidate.
 # Symptoms with no dependency -> agent-level candidate (prompt, logic, loop).
+# Symptoms pointing at another agent (an upstream producer) -> cascade candidate.
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 
@@ -64,6 +65,9 @@ def correlate(symptoms: list[Symptom], since: float) -> list[Candidate]:
         agents = sorted({s.agent for s in syms})
         if key.startswith("agent:"):
             out.append(Candidate(key, "agent", agents, [], syms, None))
+            continue
+        if key in deps:
+            out.append(Candidate(key, "cascade", agents, [], syms, None))
             continue
         users = sorted(a for a, d in deps.items() if key in d)
         healthy = [u for u in users if u not in sick]
