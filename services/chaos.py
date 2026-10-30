@@ -38,6 +38,7 @@ class Chaos:
     def check(self) -> bool:
         # Apply the current fault. Returns True if the response should be corrupted.
         if self.mode == "down":
+            # Simulated outage: fail fast like an unreachable upstream.
             raise HTTPException(503, f"{self.service} unavailable")
         if self.mode == "error_500":
             raise HTTPException(500, f"{self.service} internal error")
