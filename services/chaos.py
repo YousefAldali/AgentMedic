@@ -1,10 +1,11 @@
 # Shared fault switch for the mock services.
 #
 # Each service gets:
-#   POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}  (used by chaos/ and the demo panel)
+#   POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt|flaky"}  (used by chaos/ and the demo panel)
 #   GET  /admin/chaos                                                (current mode, for the chaos panel)
 # Business endpoints call `chaos.check()` first. `/admin/*` is never affected by chaos,
 # so the doctor can always read true state from `/admin/state`.
+import random
 import time
 from typing import Literal
 
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 
 from common.config import get_config
 
-Mode = Literal["none", "down", "slow", "error_500", "corrupt"]
+Mode = Literal["none", "down", "slow", "error_500", "corrupt", "flaky"]
 
 
 class ChaosRequest(BaseModel):
@@ -40,6 +41,9 @@ class Chaos:
         if self.mode == "down":
             # Simulated outage: fail fast like an unreachable upstream.
             raise HTTPException(503, f"{self.service} unavailable")
+        if self.mode == "flaky" and random.random() < get_config()["chaos"]["flaky_error_rate"]:
+            # Partial outage: some requests fail, but the health endpoint still says "up".
+            raise HTTPException(503, f"{self.service} unavailable")
         if self.mode == "error_500":
             raise HTTPException(500, f"{self.service} internal error")
         if self.mode == "slow":
@@ -49,4 +53,4 @@ class Chaos:
     def status(self) -> str:
         # Health status as a real service's health endpoint would report it.
         return {"none": "up", "down": "down", "slow": "degraded",
-                "error_500": "erroring", "corrupt": "up"}[self.mode]
+                "error_500": "erroring", "corrupt": "up", "flaky": "up"}[self.mode]
