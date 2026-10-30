@@ -1,6 +1,6 @@
 # Start everything with one command.
 #
-# python run.py                  # services + fleet workload + doctor (Ctrl+C to stop)
+# python run.py                  # services + fleet workload + doctor + health checks (Ctrl+C to stop)
 # python run.py --no-doctor      # without the doctor
 # python run.py --reset          # wipe traces.db first
 # python run.py --services-only  # only the mock services
@@ -66,6 +66,8 @@ def main() -> None:
 
     db.init_db(reset=args.reset)
     registry.seed_prompts()
+    from fleet.finance_agent import seed_golden_po
+    seed_golden_po()
     print(f"AgentMedic | MOCK_LLM={'on' if mock_llm() else 'off'} | db={get_config()['db_path']}")
 
     procs = start_services()
@@ -79,7 +81,9 @@ def main() -> None:
         threads.append(threading.Thread(target=run_workload, args=(stop,), daemon=True))
         if not args.no_doctor:
             from doctor.doctor import run_forever as run_doctor
+            from doctor.monitor import run_health_forever
             threads.append(threading.Thread(target=run_doctor, args=(stop,), daemon=True))
+            threads.append(threading.Thread(target=run_health_forever, args=(stop,), daemon=True))
         for t in threads:
             t.start()
         print("Running. Ctrl+C to stop.\n")
