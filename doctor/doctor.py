@@ -30,11 +30,13 @@ class Doctor:
     def __init__(self):
         self.cfg = get_config()["doctor"]
         self.watch_from = time.time()
+        self.suppressed: dict[tuple, float] = {}
 
     def tick(self) -> None:
         self.restore_dependencies()
         since = max(time.time() - self.cfg["window_s"], self.watch_from)
-        symptoms = detect(snapshot(since))
+        now = time.time()
+        symptoms = [s for s in detect(snapshot(since)) if self.suppressed.get((s.agent, s.dependency), 0) < now]
         if symptoms:
             self.handle(symptoms, since)
             self.watch_from = time.time()
@@ -47,8 +49,9 @@ class Doctor:
         event(incident_id, "DETECT", f"{len(symptoms)} symptom(s): " + "; ".join(s.describe() for s in symptoms))
 
         done_actions, verification, board, recovered = [], [], None, False
+        escalation_reason = ""
         for loop in range(1, self.cfg["max_diagnose_loops"] + 1):
-            candidates = correlate(symptoms)
+            candidates = correlate(symptoms, since)
             for c in candidates:
                 state = f", health endpoint: {c.state.get('status')}" if c.state else ""
                 healthy = f", healthy users: {', '.join(c.healthy_agents)}" if c.healthy_agents else ""
@@ -64,6 +67,10 @@ class Doctor:
             db.execute("UPDATE incidents SET hypotheses = ?, root_causes = ? WHERE id = ?",
                        (board.model_dump_json(), json.dumps([h.cause for h in causes]), incident_id))
             if not causes:
+                top = board.hypotheses[0]
+                escalation_reason = (f"Evidence is ambiguous: the best hypothesis ('{top.cause}') is only "
+                                     f"{top.confidence:.0%} confident and needs {self.cfg['confidence_threshold']:.0%}. "
+                                     "No safe action fits, so AgentMedic escalates instead of guessing.")
                 event(incident_id, "DIAGNOSE", "no hypothesis is confident enough to act on")
                 break
 
@@ -97,12 +104,20 @@ class Doctor:
         now = time.time()
         db.execute("UPDATE incidents SET status = ?, resolved_at = ?, recovered_at = ? WHERE id = ?",
                    (status, now, now if recovered else None, incident_id))
-        event(incident_id, "VERIFY" if recovered else "ESCALATE",
-              f"recovered in {now - first:.1f} s from first symptom" if recovered
-              else "could not verify recovery - escalating to a human")
-        self.report(incident_id, board, done_actions, verification)
+        if recovered:
+            event(incident_id, "VERIFY", f"recovered in {now - first:.1f} s from first symptom")
+        else:
+            escalation_reason = escalation_reason or (
+                f"Recovery could not be verified after {self.cfg['max_diagnose_loops']} diagnosis loops.")
+            cooldown = self.cfg["escalation_cooldown_s"]
+            for s in symptoms:
+                self.suppressed[(s.agent, s.dependency)] = now + cooldown
+            event(incident_id, "ESCALATE", f"{escalation_reason} Handing over to a human; "
+                  f"the same problem won't reopen an incident for {cooldown} s.")
+        self.report(incident_id, board, done_actions, verification, escalation_reason)
 
-    def report(self, incident_id: int, board, done_actions: list[dict], verification: list[dict]) -> None:
+    def report(self, incident_id: int, board, done_actions: list[dict], verification: list[dict],
+               escalation_reason: str = "") -> None:
         incident = db.query("SELECT * FROM incidents WHERE id = ?", (incident_id,))[0]
         board_dict = board.model_dump() if board else {"hypotheses": [], "source": "-"}
         board_dict["threshold"] = self.cfg["confidence_threshold"]
@@ -113,7 +128,8 @@ class Doctor:
                 cached = " and agents are served cached data" if db.get_control(f"fallback.{dep}") else ""
                 follow_up.append(f"{dep} is still {state.get('status', 'unknown')}; its circuit breaker stays "
                                  f"open{cached}. The doctor closes it automatically once {dep} is healthy.")
-        en, ar = write_reports(facts(incident, board_dict, done_actions, verification, follow_up))
+        en, ar = write_reports(facts(incident, board_dict, done_actions, verification, follow_up,
+                                     escalation_reason))
         db.execute("UPDATE incidents SET report_md = ?, report_md_ar = ? WHERE id = ?", (en, ar, incident_id))
         event(incident_id, "REPORT", f"incident #{incident_id} report written (EN + AR)")
 
