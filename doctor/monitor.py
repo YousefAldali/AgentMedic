@@ -4,7 +4,7 @@ import json
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from common import db
 from common.config import ROOT, get_config
@@ -18,6 +18,8 @@ class Snapshot:
     llm_spans: list[dict]
     error_spans: list[dict]
     runs: list[dict]
+    health: list[dict] = field(default_factory=list)
+    purchase_orders: list[dict] = field(default_factory=list)
 
 
 def snapshot(since: float) -> Snapshot:
@@ -25,7 +27,7 @@ def snapshot(since: float) -> Snapshot:
         since=since,
         now=time.time(),
         tool_spans=db.query(
-            "SELECT run_id, agent, tool_name, error, latency_ms, ts FROM spans "
+            "SELECT run_id, agent, tool_name, input, output, error, latency_ms, ts FROM spans "
             "WHERE kind = 'tool' AND ts >= ? ORDER BY ts", (since,)),
         llm_spans=db.query(
             "SELECT run_id, agent, latency_ms, tokens_in, tokens_out, model, ts FROM spans "
@@ -36,6 +38,10 @@ def snapshot(since: float) -> Snapshot:
         runs=db.query(
             "SELECT run_id, agent, status, total_tokens, total_steps, started_at, ended_at FROM runs "
             "WHERE started_at >= ? AND status != 'running'", (since,)),
+        health=db.query("SELECT agent, score, ts FROM health_checks WHERE ts >= ? ORDER BY ts", (since,)),
+        purchase_orders=db.query(
+            "SELECT po_id, valid, ts FROM purchase_orders WHERE ts >= ? AND run_id != 'seed' ORDER BY ts",
+            (since,)),
     )
 
 
