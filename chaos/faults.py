@@ -25,12 +25,12 @@ def _inject_f10() -> None:
     # the vendor API fails some requests (503) while the procurement tool garbles
     # some item names (404). The right move is to escalate, not to guess.
     set_service_mode("vendor_api", "flaky")
-    db.set_control("chaos.procurement.bad_item_rate", get_config()["chaos"]["bad_item_rate"])
+    db.set_control("chaos.procurement.bad_item_every", get_config()["chaos"]["bad_item_every"])
 
 
 def _reset_f10() -> None:
     set_service_mode("vendor_api", "none")
-    db.execute("DELETE FROM control WHERE key = 'chaos.procurement.bad_item_rate'")
+    db.execute("DELETE FROM control WHERE key = 'chaos.procurement.bad_item_every'")
 
 
 @dataclass
