@@ -1,14 +1,16 @@
 # HR agent: answers leave-balance and policy questions (HR DB + knowledge base).
 from common.config import service_url
-from fleet.base_agent import BaseAgent, Tool, http_get
+from fleet.base_agent import BaseAgent, Tool, call_dependency, http_get
 
 
 def get_leave_balance(employee_id: str) -> dict:
-    return http_get(f"{service_url('hr_db')}/employees/{employee_id}/leave")
+    return call_dependency("hr_db", employee_id.upper(), lambda: http_get(
+        f"{service_url('hr_db')}/employees/{employee_id}/leave"))
 
 
 def search_knowledge_base(query: str) -> dict:
-    return http_get(f"{service_url('knowledge_base')}/search", {"q": query, "k": 3})
+    return call_dependency("knowledge_base", query, lambda: http_get(
+        f"{service_url('knowledge_base')}/search", {"q": query, "k": 3}))
 
 
 class HRAgent(BaseAgent):
