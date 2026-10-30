@@ -5,7 +5,6 @@
 #   GET  /admin/chaos                                                (current mode, for the chaos panel)
 # Business endpoints call `chaos.check()` first. `/admin/*` is never affected by chaos,
 # so the doctor can always read true state from `/admin/state`.
-import random
 import time
 from typing import Literal
 
@@ -25,6 +24,7 @@ class Chaos:
     def __init__(self, service: str):
         self.service = service
         self.mode: str = "none"
+        self.requests = 0
         self.router = APIRouter(prefix="/admin")
 
         @self.router.post("/chaos")
@@ -41,8 +41,9 @@ class Chaos:
         if self.mode == "down":
             # Simulated outage: fail fast like an unreachable upstream.
             raise HTTPException(503, f"{self.service} unavailable")
-        if self.mode == "flaky" and random.random() < get_config()["chaos"]["flaky_error_rate"]:
-            # Partial outage: some requests fail, but the health endpoint still says "up".
+        self.requests += 1
+        if self.mode == "flaky" and self.requests % get_config()["chaos"]["flaky_fail_every"] == 0:
+            # Partial outage: every Nth request fails, but the health endpoint still says "up".
             raise HTTPException(503, f"{self.service} unavailable")
         if self.mode == "error_500":
             raise HTTPException(500, f"{self.service} internal error")
