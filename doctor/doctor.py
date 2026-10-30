@@ -1,0 +1,155 @@
+# The doctor's state machine:
+# MONITOR -> DETECT -> CORRELATE -> DIAGNOSE -> TREAT -> VERIFY -> REPORT
+# If verification fails it diagnoses again with the new evidence (max_diagnose_loops),
+# then escalates to a human. Every stage writes to doctor_events for the dashboard.
+#
+#   python -m doctor.doctor     # run the doctor on its own (services + fleet must be running)
+import json
+import threading
+import time
+import traceback
+
+from common import db
+from common.config import get_config
+from doctor import actions
+from doctor.correlator import correlate, read_state
+from doctor.detectors import Symptom, detect
+from doctor.diagnoser import diagnose, root_causes
+from doctor.monitor import snapshot
+from doctor.reporter import facts, write_reports
+from doctor.verifier import verify
+
+
+def event(incident_id: int | None, stage: str, message: str) -> None:
+    db.execute("INSERT INTO doctor_events(incident_id, stage, message, ts) VALUES(?, ?, ?, ?)",
+               (incident_id, stage, message, time.time()))
+    print(f"[doctor] {stage:<9} {message}", flush=True)
+
+
+class Doctor:
+    def __init__(self):
+        self.cfg = get_config()["doctor"]
+        self.watch_from = time.time()
+
+    def tick(self) -> None:
+        self.restore_dependencies()
+        since = max(time.time() - self.cfg["window_s"], self.watch_from)
+        symptoms = detect(snapshot(since))
+        if symptoms:
+            self.handle(symptoms, since)
+            self.watch_from = time.time()
+
+    def handle(self, symptoms: list[Symptom], since: float) -> None:
+        first = min(s.first_seen for s in symptoms)
+        incident_id = db.execute(
+            "INSERT INTO incidents(status, symptoms, opened_at, first_symptom_at) VALUES('open', ?, ?, ?)",
+            (json.dumps([s.to_dict() for s in symptoms]), time.time(), first))
+        event(incident_id, "DETECT", f"{len(symptoms)} symptom(s): " + "; ".join(s.describe() for s in symptoms))
+
+        done_actions, verification, board, recovered = [], [], None, False
+        for loop in range(1, self.cfg["max_diagnose_loops"] + 1):
+            candidates = correlate(symptoms)
+            for c in candidates:
+                state = f", health endpoint: {c.state.get('status')}" if c.state else ""
+                healthy = f", healthy users: {', '.join(c.healthy_agents)}" if c.healthy_agents else ""
+                event(incident_id, "CORRELATE",
+                      f"{c.dependency} -> {c.kind} candidate, agents {', '.join(c.agents)}{state}{healthy}")
+
+            board = diagnose(candidates, since)
+            causes = root_causes(board)
+            for h in board.hypotheses:
+                verdict = "ROOT CAUSE" if h in causes else "rejected"
+                why = h.evidence_against[0] if h.evidence_against and h not in causes else (h.evidence_for or [""])[0]
+                event(incident_id, "DIAGNOSE", f"[{h.confidence:.0%}] {h.cause} - {verdict}. {why}")
+            db.execute("UPDATE incidents SET hypotheses = ?, root_causes = ? WHERE id = ?",
+                       (board.model_dump_json(), json.dumps([h.cause for h in causes]), incident_id))
+            if not causes:
+                event(incident_id, "DIAGNOSE", "no hypothesis is confident enough to act on")
+                break
+
+            fixes = list(dict.fromkeys((f.action, f.target) for h in causes for f in h.proposed_fix))
+            for name, target in fixes:
+                if any(a["action"] == name and a["target"] == target and a["status"] == "done" for a in done_actions):
+                    continue
+                result = actions.execute(name, target, incident_id)
+                result["ts"] = time.time()
+                done_actions.append(result)
+                event(incident_id, "TREAT", f"{name}({target}) [{result['tier']}] -> {result['status']}"
+                      + (f": {result['detail']}" if result.get("detail") else ""))
+            db.execute("UPDATE incidents SET actions = ? WHERE id = ?",
+                       (json.dumps(done_actions, default=str), incident_id))
+
+            fix_time = time.time()
+            agents = sorted({a for h in causes for a in h.affected_agents})
+            recovered, rounds = verify(agents, fix_time, lambda r: event(
+                incident_id, "VERIFY", f"round {r['round']}: {'pass' if r['ok'] else 'fail'} "
+                f"({r['passes']}/{self.cfg['verify_passes']}) " + "; ".join(r["probes"].values())
+                + (f" | live: {'; '.join(r['live_symptoms'])}" if r["live_symptoms"] else "")))
+            verification += rounds
+            if recovered:
+                break
+            new = detect(snapshot(fix_time))
+            symptoms = new or symptoms
+            since = fix_time
+            event(incident_id, "DIAGNOSE", f"not recovered after loop {loop}, diagnosing again with new evidence")
+
+        status = "resolved" if recovered else "escalated"
+        now = time.time()
+        db.execute("UPDATE incidents SET status = ?, resolved_at = ?, recovered_at = ? WHERE id = ?",
+                   (status, now, now if recovered else None, incident_id))
+        event(incident_id, "VERIFY" if recovered else "ESCALATE",
+              f"recovered in {now - first:.1f} s from first symptom" if recovered
+              else "could not verify recovery - escalating to a human")
+        self.report(incident_id, board, done_actions, verification)
+
+    def report(self, incident_id: int, board, done_actions: list[dict], verification: list[dict]) -> None:
+        incident = db.query("SELECT * FROM incidents WHERE id = ?", (incident_id,))[0]
+        board_dict = board.model_dump() if board else {"hypotheses": [], "source": "-"}
+        board_dict["threshold"] = self.cfg["confidence_threshold"]
+        follow_up = []
+        for dep in get_config()["services"]:
+            if db.get_control(f"circuit.{dep}") == "open":
+                state = read_state(dep) or {}
+                cached = " and agents are served cached data" if db.get_control(f"fallback.{dep}") else ""
+                follow_up.append(f"{dep} is still {state.get('status', 'unknown')}; its circuit breaker stays "
+                                 f"open{cached}. The doctor closes it automatically once {dep} is healthy.")
+        en, ar = write_reports(facts(incident, board_dict, done_actions, verification, follow_up))
+        db.execute("UPDATE incidents SET report_md = ?, report_md_ar = ? WHERE id = ?", (en, ar, incident_id))
+        event(incident_id, "REPORT", f"incident #{incident_id} report written (EN + AR)")
+
+    def restore_dependencies(self) -> None:
+        # Half-open check: once a dependency with an open breaker reports healthy again,
+        # close the breaker and stop serving cached data.
+        for dep in get_config()["services"]:
+            if db.get_control(f"circuit.{dep}") != "open":
+                continue
+            state = read_state(dep) or {}
+            integrity = state.get("data_integrity") or state.get("index_integrity") or "ok"
+            if state.get("status") != "up" or integrity != "ok":
+                continue
+            rows = db.query("SELECT incident_id FROM actions_log WHERE target = ? AND action = 'open_circuit_breaker' "
+                            "ORDER BY id DESC LIMIT 1", (dep,))
+            incident_id = rows[0]["incident_id"] if rows else None
+            actions.execute("close_circuit_breaker", dep, incident_id)
+            if db.get_control(f"fallback.{dep}"):
+                actions.execute("disable_fallback", dep, incident_id)
+            event(incident_id, "RESTORE", f"{dep} is healthy again: circuit breaker closed, live data restored")
+
+
+def run_forever(stop: threading.Event) -> None:
+    doc = Doctor()
+    interval = doc.cfg["poll_interval_s"]
+    print(f"[doctor] watching the fleet every {interval} s", flush=True)
+    while not stop.wait(interval):
+        try:
+            doc.tick()
+        except Exception:
+            traceback.print_exc()
+
+
+if __name__ == "__main__":
+    stop_event = threading.Event()
+    try:
+        run_forever(stop_event)
+    except KeyboardInterrupt:
+        stop_event.set()
