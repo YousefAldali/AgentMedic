@@ -78,8 +78,8 @@ def detect_llm_errors(snap: Snapshot, cfg: dict) -> list[Symptom]:
     out = []
     by_agent = defaultdict(list)
     for s in snap.error_spans:
-        if s["error"].startswith(("step cap", "token budget")):
-            continue
+        if s["error"].startswith(("step cap", "token budget", "run killed")):
+            continue  # limits the agent hit, or the doctor's own kill - not LLM failures
         by_agent[s["agent"]].append(s)
     for agent, errs in by_agent.items():
         if len(errs) >= cfg["llm_error_count"]:
@@ -106,9 +106,11 @@ def detect_run_failures(snap: Snapshot, cfg: dict) -> list[Symptom]:
 
 
 def detect_loops(snap: Snapshot, cfg: dict) -> list[Symptom]:
-    # The same tool called with the same arguments again and again inside one run.
+    # The same tool called with the same arguments again and again inside one run, and
+    # getting answers each time (failed calls are retries, which the error detectors handle).
     out, seen = [], set()
-    counts = Counter((s["run_id"], s["agent"], s["tool_name"], s["input"]) for s in snap.tool_spans)
+    counts = Counter((s["run_id"], s["agent"], s["tool_name"], s["input"]) for s in snap.tool_spans
+                     if not s["error"])
     for (run_id, agent, tool, args), n in counts.items():
         if n >= cfg["loop_repeat"] and agent not in seen:
             seen.add(agent)
