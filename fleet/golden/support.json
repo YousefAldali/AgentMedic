@@ -1,0 +1,6 @@
+[
+  {"question": "How do I reset my password?", "expect": {"any": ["forgot password"]}},
+  {"question": "Can I get a full refund 10 days after buying?", "expect": {"regex": "\\b14\\b"}},
+  {"question": "كيف أعيد تعيين كلمة المرور؟", "expect": {"any": ["نسيت كلمة المرور", "نسيت"]}},
+  {"question": "ما هي مدة استرداد المبلغ بعد الشراء؟", "expect": {"regex": "\\b14\\b|١٤"}}
+]
