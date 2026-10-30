@@ -81,8 +81,10 @@ def test_guard_does_not_depend_on_wording(wording):
 @pytest.mark.parametrize("loose_target", ["vendor_api.get_quotes", "Vendor API", "the vendor_api service"])
 def test_guard_understands_loose_target_names(loose_target):
     out = apply_guards(board_of(hyp("outage", 0.9, target=loose_target)), [candidate(status="up")])
-    assert out.hypotheses[0].proposed_fix[0].target == "vendor_api"
-    assert out.hypotheses[0].confidence == 0.55
+    h = out.hypotheses[0]
+    assert h.confidence == 0.55
+    assert h.proposed_fix == []
+    assert any("dropped open_circuit_breaker(vendor_api)" in e for e in h.evidence_against)
 
 
 def test_guard_caps_when_errors_are_mixed_even_if_health_is_down():
