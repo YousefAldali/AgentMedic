@@ -1,0 +1,8 @@
+[
+  {"question": "Compare quotes for 10 laptops and draft a PO.",
+   "expect": {"json": {"status": "ok", "po.vendor": "eXtra Enterprise", "po.total": 39500}}},
+  {"question": "قارن عروض الأسعار لـ 20 شاشة وجهّز أمر شراء.",
+   "expect": {"json": {"status": "ok", "po.vendor": "Gulf IT Supply", "po.total": 17000}}},
+  {"question": "Get quotes for 10 office chairs and draft a PO.",
+   "expect": {"json": {"status": "ok", "po.vendor": "Najd Furniture", "po.total": 5800}}}
+]
