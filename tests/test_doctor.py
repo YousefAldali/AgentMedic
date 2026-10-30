@@ -26,6 +26,7 @@ def doc(monkeypatch):
     monkeypatch.setattr(doctor_mod, "verify", fake_verify)
     d = doctor_mod.Doctor()
     d.verify_calls = verify_calls
+    monkeypatch.setattr(d, "check_everyone", lambda incident_id: None)
     return d
 
 
