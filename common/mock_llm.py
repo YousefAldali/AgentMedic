@@ -66,13 +66,7 @@ def _hr(task: str, results: list[dict], ar: bool):
         if ar:
             return f"رصيد إجازات الموظف {last['employee_id']} ({last.get('name_ar', last['name'])}) هو {last['leave_balance_days']} يومًا.", []
         return f"{last['employee_id']} ({last['name']}) has {last['leave_balance_days']} leave days left.", []
-    hits = last.get("results") or []
-    if not hits:
-        return ("لم أجد معلومات حول هذا الموضوع." if ar
-                else "I couldn't find any information about that."), []
-    top = hits[0]
-    return (f"وفقًا لـ «{top['title']}»: {top['snippet']}" if ar
-            else f"According to \"{top['title']}\": {top['snippet']}"), []
+    return _kb_answer(last, ar)
 
 
 # ------------------------------------------------------- Procurement agent
@@ -110,7 +104,60 @@ def _procurement(task: str, results: list[dict], ar: bool):
     return json.dumps({"status": "ok", "summary": summary, "po": po}, ensure_ascii=False), []
 
 
-PLANNERS = {"hr": _hr, "procurement": _procurement}
+# ---------------------------------------------------------- Support agent
+def _kb_answer(result: dict, ar: bool):
+    hits = result.get("results") or []
+    if not hits or not hits[0].get("snippet"):
+        return ("لم أجد معلومات حول هذا الموضوع." if ar
+                else "I couldn't find any information about that."), []
+    top = hits[0]
+    return (f"وفقًا لـ «{top['title']}»: {top['snippet']}" if ar
+            else f"According to \"{top['title']}\": {top['snippet']}"), []
+
+
+def _support(task: str, results: list[dict], ar: bool):
+    if not results or (results[-1].get("error") and _trailing_errors(results) < MAX_TOOL_RETRIES):
+        return None, [_call("search_knowledge_base", query=task)]
+    if "error" in results[-1]:
+        return ("عذرًا، لا يمكنني الوصول إلى قاعدة المعرفة حاليًا. سأحولك إلى موظف." if ar
+                else "Sorry, I can't reach the knowledge base right now. Let me connect you to a human."), []
+    return _kb_answer(results[-1], ar)
+
+
+# ---------------------------------------------------------- Finance agent
+def _finance(task: str, results: list[dict], ar: bool):
+    po_id = re.search(r"PO-[A-Z0-9]+", task)
+    inv = re.search(r"INV-\d+", task)
+    amount = re.search(r"([\d,.]+)\s*(?:SAR|ريال)", task)
+    if not results or (results[-1].get("error") and _trailing_errors(results) < MAX_TOOL_RETRIES):
+        return None, [_call("get_purchase_order", po_id=po_id.group() if po_id else "")]
+
+    out = {"invoice_id": inv.group() if inv else None, "po_id": po_id.group() if po_id else None}
+    po = results[-1]
+    if "error" in po or not po.get("valid"):
+        out.update(decision="error", reason="تعذر الحصول على أمر شراء صالح." if ar
+                   else "Could not retrieve a valid purchase order.")
+        return json.dumps(out, ensure_ascii=False), []
+    try:
+        invoice_total = float(amount.group(1).replace(",", "")) if amount else None
+        po_total = float(po["total"])
+    except (TypeError, ValueError):
+        invoice_total, po_total = None, None
+    vendor_ok = bool(po.get("vendor")) and po["vendor"] in task
+    total_ok = invoice_total is not None and po_total is not None and abs(invoice_total - po_total) < 0.01
+    if vendor_ok and total_ok:
+        out.update(decision="approved", reason="المورد والمبلغ مطابقان لأمر الشراء." if ar
+                   else "Vendor and total match the purchase order.")
+    elif not vendor_ok:
+        out.update(decision="rejected", reason="المورد لا يطابق أمر الشراء." if ar
+                   else "Vendor does not match the purchase order.")
+    else:
+        out.update(decision="rejected", reason=f"المبلغ {invoice_total} لا يطابق أمر الشراء ({po_total})." if ar
+                   else f"Invoice total {invoice_total} does not match the PO total {po_total}.")
+    return json.dumps(out, ensure_ascii=False), []
+
+
+PLANNERS = {"hr": _hr, "procurement": _procurement, "finance": _finance, "support": _support}
 
 
 def mock_reply(agent: str, messages: list[dict], tools: list[dict]):
