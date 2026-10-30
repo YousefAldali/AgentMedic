@@ -1,3 +1,5 @@
+# All ports, thresholds and intervals live here.
+
 db_path: traces.db
 
 services:
@@ -6,23 +8,47 @@ services:
   knowledge_base: {host: 127.0.0.1, port: 8103}
 
 agents:
-  default_max_steps: 50
-  default_token_budget: null
+  default_max_steps: 50        # high on purpose so the runaway-loop fault (F5) can happen
+  default_token_budget: null   # no budget until the doctor sets one
   tool_timeout_s: 5
 
 workload:
-  interval_s: 3
+  interval_s: 3                # seconds between new tasks
   max_concurrent: 4
 
 llm:
   timeout_s: 60
-  mock_latency_ms: 150
+  mock_latency_ms: 150         # fake delay per call in MOCK_LLM mode
 
 chaos:
-  slow_delay_s: 4
+  slow_delay_s: 4              # delay added by the "slow" fault mode
 
+# Which shared dependencies each agent uses (used by the doctor's correlator).
 dependencies:
   hr: [hr_db, knowledge_base, llm]
   procurement: [vendor_api, llm]
 
+# Agent -> agents whose output it consumes (Finance <- Procurement arrives in Phase 3).
 upstream: {}
+
+# Which dependency each tool calls.
+tools:
+  get_quotes: vendor_api
+  get_leave_balance: hr_db
+  search_knowledge_base: knowledge_base
+
+doctor:
+  poll_interval_s: 5           # how often the doctor checks the traces
+  window_s: 30                 # how far back each check looks
+  min_tool_calls: 3            # ignore tools with fewer calls than this in the window
+  tool_error_rate: 0.5         # fraction of failed tool calls that counts as a symptom
+  tool_error_streak: 3         # this many failures in a row counts as a symptom
+  latency_high_ms: 5000        # p95 LLM latency that counts as a symptom
+  llm_error_count: 2           # LLM call errors in the window that count as a symptom
+  min_runs: 3
+  run_failure_rate: 0.5
+  confidence_threshold: 0.6    # hypotheses at or above this are treated as root causes
+  verify_passes: 3             # consecutive passing checks needed to call it recovered
+  verify_interval_s: 3
+  verify_max_rounds: 8
+  max_diagnose_loops: 3        # then escalate to a human
