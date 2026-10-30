@@ -97,6 +97,13 @@ def wait_for_doctor(sid: str, t0: float, timeout_s: float) -> list[dict]:
     return _incidents_since(t0)
 
 
+def wait_until_idle(max_s: float = 600) -> None:
+    # Never start the next scenario while the doctor is still working on an incident.
+    deadline = time.time() + max_s
+    while time.time() < deadline and db.query("SELECT 1 FROM incidents WHERE status = 'open' LIMIT 1"):
+        time.sleep(2)
+
+
 def run_checks(ids: list[str], timeout_s: float = 180, settle_s: float = 12) -> list[Result]:
     os.environ["AUTO_APPROVE"] = "1"
     from doctor.doctor import Doctor, run_forever as run_doctor
@@ -138,6 +145,7 @@ def run_checks(ids: list[str], timeout_s: float = 180, settle_s: float = 12) -> 
             results.append(r)
             print(f"===== {sid}: {'PASS' if r.passed else 'FAIL'} =====", flush=True)
             reset(sid)
+            wait_until_idle()
     finally:
         stop.set()
         for t in threads:
