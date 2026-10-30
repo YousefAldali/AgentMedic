@@ -53,6 +53,21 @@ Mock services (ports in `config.yaml`):
 
 All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, `GET /admin/chaos`, `GET /admin/state`.
 
+## Tests
+
+```bash
+.venv/bin/python -m pytest -q     # 69 tests, offline, about 1 second
+```
+
+| File | What it checks |
+|---|---|
+| `tests/test_detectors.py` | when a symptom must fire and when it must stay quiet |
+| `tests/test_correlator.py` | grouping symptoms by service and counting 4xx vs 5xx errors |
+| `tests/test_diagnoser.py` | the hypothesis board, the 55% safety rule (any wording, loose target names), LLM retry and fallback |
+| `tests/test_actions.py` | safety tiers: destructive actions refused, approvals wait, every action can be undone |
+| `tests/test_doctor.py` | fix vs escalate, no fix -> escalate at once, cooldown, the 5-request check before closing a breaker |
+| `tests/test_faults.py` | the F10 fault itself, and the agent's circuit breaker and cache |
+
 ## Environment variables
 
 | Var | Meaning |
