@@ -95,7 +95,7 @@ def chat(messages: list[dict], tools: list[dict] | None = None, *,
         resp = _openai_client().chat.completions.create(**kwargs)
     except LLMError:
         raise
-    except Exception as e:
+    except Exception as e:  # network, auth, rate limit, ... all surface the same way
         raise LLMError(f"{type(e).__name__}: {e}") from e
 
     msg = resp.choices[0].message
