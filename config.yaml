@@ -3,9 +3,9 @@
 db_path: traces.db
 
 services:
-  hr_db:          {host: 127.0.0.1, port: 8101}
-  vendor_api:     {host: 127.0.0.1, port: 8102}
-  knowledge_base: {host: 127.0.0.1, port: 8103}
+  hr_db:          {host: 127.0.0.1, port: 8101, probe: "/employees/E001/leave"}
+  vendor_api:     {host: 127.0.0.1, port: 8102, probe: "/quotes?item=laptops&quantity=1"}
+  knowledge_base: {host: 127.0.0.1, port: 8103, probe: "/search?q=leave"}
 
 agents:
   default_max_steps: 50        # high on purpose so the runaway-loop fault (F5) can happen
@@ -22,8 +22,8 @@ llm:
 
 chaos:
   slow_delay_s: 4              # delay added by the "slow" fault mode
-  flaky_error_rate: 0.5        # share of requests that fail in the "flaky" mode
-  bad_item_rate: 0.35          # share of calls the misbehaving tool garbles (F10)
+  flaky_fail_every: 2          # in the "flaky" mode every Nth request fails
+  bad_item_every: 3            # the misbehaving tool garbles every Nth call (F10)
 
 # Which shared dependencies each agent uses (used by the doctor's correlator).
 dependencies:
@@ -55,3 +55,4 @@ doctor:
   verify_max_rounds: 8
   max_diagnose_loops: 3        # then escalate to a human
   escalation_cooldown_s: 120   # after escalating, don't reopen the same problem for this long
+  half_open_requests: 5        # real test requests that must all succeed before closing a breaker
