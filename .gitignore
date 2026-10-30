@@ -1,11 +1,15 @@
+# Secrets (API keys) - never commit
 .env
 
+# Python environment and caches
 .venv/
 __pycache__/
 *.pyc
 
+# Runtime data (recreated on every run)
 traces.db
 traces.db-wal
 traces.db-shm
 
+# macOS
 .DS_Store
