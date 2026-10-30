@@ -18,7 +18,7 @@ class ProcurementAgent(BaseAgent):
                 "description": "Get vendor price quotes for a catalog item "
                                "(laptops, monitors, office chairs, printers).",
                 "parameters": {"type": "object", "properties": {
-                    "item": {"type": "string"},
+                    "item": {"type": "string", "enum": ["laptops", "monitors", "office chairs", "printers"]},
                     "quantity": {"type": "integer", "minimum": 1}},
                     "required": ["item", "quantity"]}}}),
     }
