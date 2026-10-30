@@ -1,0 +1,11 @@
+.env
+
+.venv/
+__pycache__/
+*.pyc
+
+traces.db
+traces.db-wal
+traces.db-shm
+
+.DS_Store

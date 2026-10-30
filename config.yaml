@@ -1,0 +1,28 @@
+db_path: traces.db
+
+services:
+  hr_db:          {host: 127.0.0.1, port: 8101}
+  vendor_api:     {host: 127.0.0.1, port: 8102}
+  knowledge_base: {host: 127.0.0.1, port: 8103}
+
+agents:
+  default_max_steps: 50
+  default_token_budget: null
+  tool_timeout_s: 5
+
+workload:
+  interval_s: 3
+  max_concurrent: 4
+
+llm:
+  timeout_s: 60
+  mock_latency_ms: 150
+
+chaos:
+  slow_delay_s: 4
+
+dependencies:
+  hr: [hr_db, knowledge_base, llm]
+  procurement: [vendor_api, llm]
+
+upstream: {}

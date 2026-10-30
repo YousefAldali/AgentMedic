@@ -1,0 +1,14 @@
+{
+  "annual_leave": {
+    "en": "Employees get 30 days of annual leave per year. Up to 10 unused days can be carried over to the next year.",
+    "ar": "يحصل الموظف على 30 يومًا من الإجازة السنوية كل عام. يمكن ترحيل 10 أيام غير مستخدمة كحد أقصى إلى العام التالي."
+  },
+  "remote_work": {
+    "en": "Employees may work remotely up to 2 days per week with manager approval.",
+    "ar": "يمكن للموظف العمل عن بعد حتى يومين في الأسبوع بموافقة المدير."
+  },
+  "expenses": {
+    "en": "Expense claims must be submitted within 30 days with receipts. Claims above 5,000 SAR need director approval.",
+    "ar": "يجب تقديم طلبات استرداد المصروفات خلال 30 يومًا مع الإيصالات. الطلبات التي تتجاوز 5000 ريال تحتاج موافقة المدير العام."
+  }
+}

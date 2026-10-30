@@ -1,0 +1,7 @@
+[
+  {"id": "E001", "name": "Ahmed Al-Harbi",   "name_ar": "أحمد الحربي",   "department": "Finance",     "leave_balance_days": 18},
+  {"id": "E002", "name": "Sara Al-Qahtani",  "name_ar": "سارة القحطاني", "department": "HR",          "leave_balance_days": 21},
+  {"id": "E003", "name": "Faisal Al-Otaibi", "name_ar": "فيصل العتيبي",  "department": "Procurement", "leave_balance_days": 9},
+  {"id": "E004", "name": "Noura Al-Dosari",  "name_ar": "نورة الدوسري",  "department": "Support",     "leave_balance_days": 30},
+  {"id": "E005", "name": "Khalid Al-Shehri", "name_ar": "خالد الشهري",   "department": "IT",          "leave_balance_days": 4}
+]

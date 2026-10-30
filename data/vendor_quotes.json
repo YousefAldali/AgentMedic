@@ -1,0 +1,11 @@
+{
+  "laptops":       [{"vendor": "Jarir Business", "unit_price": 4200, "delivery_days": 5},
+                    {"vendor": "eXtra Enterprise", "unit_price": 3950, "delivery_days": 7},
+                    {"vendor": "Gulf IT Supply", "unit_price": 4100, "delivery_days": 3}],
+  "monitors":      [{"vendor": "Jarir Business", "unit_price": 890, "delivery_days": 4},
+                    {"vendor": "Gulf IT Supply", "unit_price": 850, "delivery_days": 6}],
+  "office chairs": [{"vendor": "Riyadh Office Co", "unit_price": 620, "delivery_days": 10},
+                    {"vendor": "Najd Furniture", "unit_price": 580, "delivery_days": 14}],
+  "printers":      [{"vendor": "Gulf IT Supply", "unit_price": 1450, "delivery_days": 5},
+                    {"vendor": "eXtra Enterprise", "unit_price": 1390, "delivery_days": 8}]
+}
