@@ -6,6 +6,11 @@ from typing import Any
 
 from common.config import db_path
 
+# runs.status: running | ok | failed | timeout | killed
+# spans.kind: llm | tool | final | error
+# control: shared runtime switches (LLM routing, circuit breakers, step caps, ...) that chaos
+# and the doctor change from their own processes and the agents read on every run.
+# cache: last good response per dependency and key, served when a fallback is enabled.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY, agent TEXT, task TEXT,
@@ -44,6 +49,10 @@ CREATE TABLE IF NOT EXISTS prompts (
     PRIMARY KEY (agent, version)
 );
 CREATE TABLE IF NOT EXISTS control (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS cache (
+    dependency TEXT, key TEXT, value TEXT, ts REAL,
+    PRIMARY KEY (dependency, key)
+);
 """
 
 
@@ -63,6 +72,11 @@ def init_db(reset: bool = False) -> None:
                 p.unlink()
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # Columns added after Phase 1; add them to older databases too.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(incidents)")}
+        for col in ("first_symptom_at", "recovered_at"):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE incidents ADD COLUMN {col} REAL")
 
 
 def execute(sql: str, params: tuple = ()) -> int:
