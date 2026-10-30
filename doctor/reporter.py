@@ -37,7 +37,7 @@ def _secs(a: float | None, b: float | None) -> str:
 
 
 def facts(incident: dict, board: dict, actions: list[dict], verification: list[dict],
-          follow_up: list[str]) -> dict:
+          follow_up: list[str], escalation_reason: str = "") -> dict:
     causes = [h for h in board["hypotheses"] if h["confidence"] >= board["threshold"]]
     return {
         "id": incident["id"], "status": incident["status"],
@@ -45,7 +45,8 @@ def facts(incident: dict, board: dict, actions: list[dict], verification: list[d
         "recovered_at": incident["recovered_at"], "symptoms": json.loads(incident["symptoms"]),
         "hypotheses": board["hypotheses"], "board_source": board["source"], "root_causes": causes,
         "actions": actions, "verification": verification, "follow_up": follow_up,
-        "agents": sorted({a for h in causes for a in h["affected_agents"]}),
+        "agents": sorted({s["agent"] for s in json.loads(incident["symptoms"])}),
+        "escalation_reason": escalation_reason,
     }
 
 
@@ -57,13 +58,23 @@ def _template_text(f: dict) -> dict:
     agents = ", ".join(f["agents"]) or "-"
     passes = sum(1 for v in f["verification"] if v["ok"])
     ok = f["status"] == "resolved"
-    summary_en = (f"Agents affected: {agents}. Root cause: {causes}. AgentMedic applied {acts}"
-                  + (f" and verified recovery with {passes} passing check rounds." if ok
-                     else ". Recovery could not be verified, so the incident was escalated to a human."))
-    summary_ar = (f"الوكلاء المتأثرون: {agents}. السبب الجذري: {causes}. نفّذ AgentMedic: {acts_ar}"
-                  + (f"، وتحقق من التعافي عبر {passes} جولات فحص ناجحة." if ok
-                     else "، ولم يتمكن من التحقق من التعافي فتم تصعيد الحادثة إلى فريق بشري."))
+    if ok:
+        summary_en = (f"Agents affected: {agents}. Root cause: {causes}. AgentMedic applied {acts} "
+                      f"and verified recovery with {passes} passing check rounds.")
+        summary_ar = (f"الوكلاء المتأثرون: {agents}. السبب الجذري: {causes}. نفّذ AgentMedic: {acts_ar}، "
+                      f"وتحقق من التعافي عبر {passes} جولات فحص ناجحة.")
+    else:
+        summary_en = (f"Agents affected: {agents}. {f['escalation_reason']} Actions taken: {acts}. "
+                      "The incident was escalated to a human.")
+        summary_ar = (f"الوكلاء المتأثرون: {agents}. الأدلة غير حاسمة أو لم يتم التحقق من التعافي، "
+                      f"لذلك لم يخمّن AgentMedic ولم ينفّذ إجراءً غير مؤكد. الإجراءات المنفذة: {acts_ar}. "
+                      "تم تصعيد الحادثة إلى فريق بشري.")
     prev = [PREVENTION[a["action"]] for a in f["actions"] if a["action"] in PREVENTION and a["status"] == "done"]
+    if not ok:
+        prev.append(("A human should check the vendor API's real error rate and the procurement tool's "
+                     "requests, then add a detector for this pattern.",
+                     "يجب أن يراجع شخص معدل الأخطاء الفعلي في واجهة الموردين وطلبات أداة المشتريات، "
+                     "ثم تضاف قاعدة اكتشاف لهذا النمط."))
     prev = list(dict.fromkeys(prev)) or [("Review the fault and add a detector rule for it.",
                                           "مراجعة العطل وإضافة قاعدة اكتشاف خاصة به.")]
     return {"summary_en": summary_en, "summary_ar": summary_ar,
@@ -118,14 +129,23 @@ def _render(f: dict, text: dict, ar: bool) -> str:
               "|---|---|---|---|---|"]
     causes = {h["cause"] for h in f["root_causes"]}
     for h in f["hypotheses"]:
-        verdict = L("root cause", "سبب جذري") if h["cause"] in causes else L("rejected", "مرفوضة")
+        if h["cause"] in causes:
+            verdict = L("root cause", "سبب جذري")
+        elif h["confidence"] >= 0.3:
+            verdict = L("inconclusive", "غير حاسمة")
+        else:
+            verdict = L("rejected", "مرفوضة")
         cell = lambda xs: "<br>".join(x.replace("|", "/") for x in xs) or "-"
         lines.append(f"| {h['cause']} | {h['confidence']:.0%} | {verdict} | {cell(h['evidence_for'])} | "
                      f"{cell(h['evidence_against'])} |")
-    lines += ["", f"## {L('Actions taken', 'الإجراءات المنفذة')}", "",
-              f"| {L('Action', 'الإجراء')} | {L('Target', 'الهدف')} | {L('Tier', 'المستوى')} | {L('Result', 'النتيجة')} |",
-              "|---|---|---|---|"]
-    lines += [f"| `{a['action']}` | {a['target']} | {a['tier']} | {a['status']} |" for a in f["actions"]]
+    lines += ["", f"## {L('Actions taken', 'الإجراءات المنفذة')}", ""]
+    if f["actions"]:
+        lines += [f"| {L('Action', 'الإجراء')} | {L('Target', 'الهدف')} | {L('Tier', 'المستوى')} | {L('Result', 'النتيجة')} |",
+                  "|---|---|---|---|"]
+        lines += [f"| `{a['action']}` | {a['target']} | {a['tier']} | {a['status']} |" for a in f["actions"]]
+    else:
+        lines.append(L("None. No hypothesis was confident enough for a safe action.",
+                       "لا شيء. لم تصل أي فرضية إلى درجة ثقة كافية لتنفيذ إجراء آمن."))
     lines += ["", f"## {L('Verification', 'التحقق')}"]
     for v in f["verification"]:
         mark = "✅" if v["ok"] else "❌"
