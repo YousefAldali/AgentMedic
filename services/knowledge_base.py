@@ -63,16 +63,18 @@ class Index:
             if score > 0:
                 scored.append((score, doc))
         scored.sort(key=lambda x: -x[0])
-        return [{"doc_id": d["doc_id"], "title": d["title"], "snippet": _snippet(d["body"], terms),
+        return [{"doc_id": d["doc_id"], "title": d["title"], "snippet": self.snippet(d["body"], terms),
                  "score": round(s, 3)} for s, d in scored[:k]]
 
-
-def _snippet(body: str, terms: list[str]) -> str:
-    paras = [p.strip() for p in body.split("\n") if p.strip()]
-    for p in paras:
-        if any(t in tokenize(p) for t in terms):
-            return p[:300]
-    return paras[0][:300] if paras else ""
+    def snippet(self, body: str, terms: list[str]) -> str:
+        # The paragraph that matches the question best (most distinct, rarest query words)
+        # comes first, followed by the rest of the (short) document as context.
+        paras = [p.strip() for p in body.split("\n") if p.strip()]
+        if not paras:
+            return ""
+        wanted = set(terms)
+        best = max(paras, key=lambda p: sum(self.idf.get(t, 0) for t in wanted & set(tokenize(p))))
+        return " ".join([best] + [p for p in paras if p is not best])[:600]
 
 
 INDEX = Index()
