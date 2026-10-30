@@ -15,10 +15,11 @@ QUOTES = json.loads((DATA_DIR / "vendor_quotes.json").read_text(encoding="utf-8"
 
 @app.get("/quotes")
 def quotes(item: str, quantity: int = 1):
-    corrupt = chaos.check()
     rows = QUOTES.get(item.lower())
     if rows is None:
+        # Bad requests are rejected at the edge, before the backend (and any backend fault) is reached.
         raise HTTPException(404, f"No vendors for item '{item}'")
+    corrupt = chaos.check()
     if corrupt:
         rows = [{"vendor": q["vendor"], "unit_price": "N/A", "delivery_days": -1} for q in rows]
     return {"item": item.lower(), "quantity": quantity, "quotes": rows}
