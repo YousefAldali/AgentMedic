@@ -1,6 +1,7 @@
 # Shared test setup: every test gets its own empty database, MOCK_LLM is forced on,
 # and helpers build symptoms and candidates without running the real services.
 import time
+import uuid
 
 import pytest
 
@@ -33,6 +34,8 @@ def candidate(status="down", errors=None, dependency="vendor_api", agents=("proc
                      [symptom(dependency=dependency)], state, errors)
 
 
-def add_tool_span(agent="procurement", tool="get_quotes", error=None, ts=None, run_id="r1") -> None:
-    db.execute("INSERT INTO spans(run_id, agent, step, kind, tool_name, error, latency_ms, ts) "
-               "VALUES(?, ?, 1, 'tool', ?, ?, 10, ?)", (run_id, agent, tool, error, ts or time.time()))
+def add_tool_span(agent="procurement", tool="get_quotes", error=None, ts=None, run_id=None,
+                  input='{"item": "laptops"}', output=None) -> None:
+    db.execute("INSERT INTO spans(run_id, agent, step, kind, tool_name, input, output, error, latency_ms, ts) "
+               "VALUES(?, ?, 1, 'tool', ?, ?, ?, ?, 10, ?)",
+               (run_id or uuid.uuid4().hex[:8], agent, tool, input, output, error, ts or time.time()))
