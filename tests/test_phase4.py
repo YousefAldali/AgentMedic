@@ -222,3 +222,100 @@ def test_rejected_approval_is_not_overwritten():
     actions.decide(aid, approve=False, by="demo")
     actions.decide(aid, approve=True, by="someone else")
     assert actions.wait_for_decision(aid, 0.1)["status"] == "rejected"
+
+
+# ---------------------------------------------------------------- fixes after the real-model run
+from doctor.diagnoser import Board, Fix, Hypothesis, add_proof_floor, apply_guards
+from fleet.base_agent import worth_caching
+
+
+def llm_hyp(cause, conf, *fixes):
+    return Hypothesis(cause=cause, affected_agents=["procurement"], confidence=conf,
+                      proposed_fix=[Fix(action=a, target=t) for a, t in fixes])
+
+
+def test_step_cap_without_loop_evidence_is_dropped_so_doctor_escalates():
+    vendor = Candidate("vendor_api", "independent", ["procurement"], [], [symptom()],
+                       {"status": "up"}, {"total": 6, "4xx": 3, "5xx": 3, "other": 0})
+    board = Board(hypotheses=[llm_hyp("procurement sends bad item names", 0.6,
+                                      ("set_step_cap", "procurement"), ("replay_run", "procurement"))])
+    out = apply_guards(board, [vendor])
+    assert out.hypotheses[0].proposed_fix == []
+    assert any("no loop or token spike" in e for e in out.hypotheses[0].evidence_against)
+
+
+def test_step_cap_with_loop_evidence_is_kept():
+    loop = agent_cand("procurement", symptom("repeated_call_loop", "procurement", None, 6, 5))
+    board = Board(hypotheses=[llm_hyp("loop", 0.9, ("kill_run", "procurement"), ("set_step_cap", "procurement"))])
+    assert len(apply_guards(board, [loop]).hypotheses[0].proposed_fix) == 2
+
+
+def test_rollback_dropped_when_prompt_is_already_known_good():
+    hr = agent_cand("hr", symptom("health_score_drop", "hr", None, 0.25, 0.75))
+    board = Board(hypotheses=[Hypothesis(cause="bad prompt", affected_agents=["hr"], confidence=0.9,
+                                         proposed_fix=[Fix(action="rollback_prompt", target="hr")])])
+    assert apply_guards(board, [hr]).hypotheses[0].proposed_fix == []
+
+
+def test_rebuild_dropped_when_index_is_fine():
+    kb = Candidate("knowledge_base", "shared", ["support"], [],
+                   [symptom("empty_results_rate", "support", "knowledge_base", 0.8, 0.5)],
+                   {"status": "up", "index_integrity": "ok"}, None)
+    board = Board(hypotheses=[llm_hyp("index broken", 0.9, ("rebuild_index", "knowledge_base"))])
+    assert apply_guards(board, [kb]).hypotheses[0].proposed_fix == []
+
+
+def test_replay_kept_next_to_a_real_fix():
+    vendor = Candidate("vendor_api", "independent", ["procurement"], [], [symptom()], {"status": "down"},
+                       {"total": 3, "4xx": 0, "5xx": 3, "other": 0})
+    board = Board(hypotheses=[llm_hyp("outage", 0.9, ("open_circuit_breaker", "vendor_api"),
+                                      ("replay_run", "procurement"))])
+    actions_kept = [f.action for f in apply_guards(board, [vendor]).hypotheses[0].proposed_fix]
+    assert actions_kept == ["open_circuit_breaker", "replay_run"]
+
+
+def test_proof_floor_adds_a_proven_loop_the_llm_underrated():
+    loop = agent_cand("procurement", symptom("repeated_call_loop", "procurement", None, 6, 5))
+    llm_board_ = Board(hypotheses=[llm_hyp("maybe a reasoning loop", 0.55, ("kill_run", "procurement")),
+                                   llm_hyp("noise", 0.1)], source="llm")
+    rules = diagnose([loop], time.time() - 30)
+    out = apply_guards(add_proof_floor(llm_board_, rules), [loop])
+    assert {i for h in root_causes(out) for i in cause_ids(h)} == {"loop:procurement"}
+    assert any("direct proof" in h.cause for h in root_causes(out))
+
+
+def test_proof_floor_never_adds_anything_for_ambiguous_evidence():
+    vendor = Candidate("vendor_api", "independent", ["procurement"], [], [symptom()], {"status": "up"},
+                       {"total": 6, "4xx": 3, "5xx": 3, "other": 0})
+    llm_board_ = Board(hypotheses=[llm_hyp("unclear", 0.4), llm_hyp("noise", 0.1)], source="llm")
+    out = apply_guards(add_proof_floor(llm_board_, diagnose([vendor], time.time() - 30)), [vendor])
+    assert root_causes(out) == []
+
+
+@pytest.mark.parametrize("result, ok", [
+    ({"results": []}, False),
+    ({"results": [{"snippet": "", "score": 0.0}]}, False),
+    ({"results": [{"snippet": "14 days", "score": 1.1}]}, True),
+    ({"status": "pending"}, False),
+    ({"quotes": [{"unit_price": "N/A"}]}, False),
+    ({"quotes": [{"unit_price": 3950}]}, True),
+    ({"leave_balance_days": None}, False),
+    ({"leave_balance_days": 21}, True),
+])
+def test_only_good_data_becomes_backup_data(result, ok):
+    assert worth_caching(result) is ok
+
+
+def test_failed_calls_are_not_counted_as_a_loop():
+    start = time.time() - 1
+    for _ in range(6):
+        add_tool_span(run_id="retry", input='{"item": "laptops"}', error="HTTP 503: down")
+    assert "repeated_call_loop" not in types(detect(snapshot(start)))
+
+
+def test_doctor_killing_runs_is_not_an_llm_failure():
+    start = time.time() - 1
+    for _ in range(3):
+        db.execute("INSERT INTO spans(run_id, agent, step, kind, error, ts) VALUES('k', 'procurement', 1, 'error', ?, ?)",
+                   ("run killed by the doctor", time.time()))
+    assert "llm_error_rate" not in types(detect(snapshot(start)))
