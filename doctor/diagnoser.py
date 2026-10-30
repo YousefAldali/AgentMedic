@@ -263,6 +263,39 @@ def canonical_target(target: str) -> str:
     return target
 
 
+def _state(target: str, by_dep: dict) -> dict:
+    c = by_dep.get(target)
+    return (c.state if c else None) or read_state(target) or {}
+
+
+def evidence_for_fix(fix: Fix, candidates: list[Candidate], by_dep: dict) -> str | None:
+    # Every fix needs matching evidence. Returns why a fix is NOT supported, or None if it is.
+    a, t = fix.action, fix.target
+    symptoms = [s for c in candidates for s in c.symptoms]
+    if a in ("kill_run", "set_step_cap"):
+        if not any(s.agent == t and s.type in LOOP_SYMPTOMS for s in symptoms):
+            return f"no loop or token spike was detected for {t}"
+    elif a == "rollback_prompt":
+        info = registry.active_info(t)
+        if info["version"] is None or info["version"] == registry.last_known_good(t):
+            return f"{t}'s active prompt is already the last known-good version"
+    elif a == "switch_model":
+        if not any(s.dependency == "llm" for s in symptoms):
+            return "no LLM latency or LLM errors were detected"
+    elif a in ("open_circuit_breaker", "enable_fallback"):
+        state = _state(t, by_dep)
+        integrity = state.get("data_integrity") or state.get("index_integrity")
+        if state.get("status") not in SERVICE_FAILING and integrity != "failed":
+            return f"{t}'s health endpoint does not report a failure"
+    elif a == "rebuild_index":
+        if _state(t, by_dep).get("index_integrity") != "failed":
+            return f"{t}'s index integrity check did not fail"
+    elif a in ("close_circuit_breaker", "disable_fallback"):
+        if db.get_control(f"circuit.{t}") != "open":
+            return f"{t}'s circuit breaker is not open"
+    return None
+
+
 def apply_guards(board: Board, candidates: list[Candidate]) -> Board:
     # Safety rules in code, applied after every diagnosis (LLM or rules), because an LLM's
     # confidence numbers are not precise enough to decide on their own whether to act.
@@ -272,10 +305,26 @@ def apply_guards(board: Board, candidates: list[Candidate]) -> Board:
     # The cap is keyed on the fix target, not on how the hypothesis is worded.
     by_dep = {c.dependency: c for c in candidates}
     services = get_config()["services"]
+    cascades = {a for c in candidates if c.kind == "cascade" for a in c.agents + [c.dependency]}
     for h in board.hypotheses:
         for fix in h.proposed_fix:
             fix.target = canonical_target(fix.target)
-        for target in sorted({f.target for f in h.proposed_fix if f.target in services}):
+        touched = sorted({f.target for f in h.proposed_fix if f.target in services})
+        kept = []
+        for fix in h.proposed_fix:
+            why_not = evidence_for_fix(fix, candidates, by_dep)
+            if why_not:
+                h.evidence_against.append(f"safety rule: dropped {fix.action}({fix.target}): {why_not}")
+            else:
+                kept.append(fix)
+        # A replay only makes sense next to a real fix, or to clean up after a cascade.
+        has_real_fix = any(f.action != "replay_run" for f in kept)
+        for fix in [f for f in kept if f.action == "replay_run"]:
+            if not has_real_fix and fix.target not in cascades:
+                kept.remove(fix)
+                h.evidence_against.append(f"safety rule: dropped replay_run({fix.target}): nothing was fixed to replay after")
+        h.proposed_fix = kept
+        for target in touched:
             c = by_dep.get(target)
             state = (c.state if c else None) or read_state(target) or {}
             status = state.get("status")
@@ -305,7 +354,25 @@ def diagnose(candidates: list[Candidate], since: float) -> Board:
     if board is None:
         board = rule_board(candidates, ctx)
         board.source = "rules (LLM fallback)"
-    return apply_guards(board, candidates)
+        return apply_guards(board, candidates)
+    return apply_guards(add_proof_floor(board, rule_board(candidates, ctx)), candidates)
+
+
+def add_proof_floor(board: Board, rules: Board) -> Board:
+    # When the rules have direct proof of a cause (health endpoint says down, the same call
+    # repeated N times, a new prompt + failing golden checks, every agent slow), the LLM
+    # can't talk it below the action threshold: the rule's hypothesis is added to the board.
+    # The safety caps in apply_guards still apply afterwards.
+    threshold = get_config()["doctor"]["confidence_threshold"]
+    covered = {i for h in board.hypotheses if h.confidence >= threshold for i in cause_ids(h)}
+    for h in rules.hypotheses:
+        ids = cause_ids(h)
+        if h.confidence >= threshold and ids and not ids <= covered:
+            h.cause = f"{h.cause} (direct proof from the rules)"
+            board.hypotheses.append(h)
+            covered |= ids
+    board.hypotheses.sort(key=lambda h: -h.confidence)
+    return board
 
 
 def root_causes(board: Board) -> list[Hypothesis]:
