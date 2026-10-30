@@ -37,11 +37,26 @@ def http_get(url: str, params: dict | None = None) -> dict:
     return r.json()
 
 
+def worth_caching(result: dict) -> bool:
+    # Only good data may become backup data: no empty or zero-score search results,
+    # no "still pending" answers, no records with missing values.
+    if not isinstance(result, dict) or result.get("status") == "pending":
+        return False
+    if "results" in result:
+        hits = result["results"] or []
+        return bool(hits) and any(h.get("snippet") and h.get("score") for h in hits)
+    if "quotes" in result:
+        return bool(result["quotes"]) and all(isinstance(q.get("unit_price"), (int, float)) for q in result["quotes"])
+    if "leave_balance_days" in result:
+        return result["leave_balance_days"] is not None
+    return True
+
+
 def call_dependency(dependency: str, key: str, fetch: Callable[[], dict]) -> dict:
     # Calls a shared dependency through its circuit breaker.
     # Breaker open + fallback on -> serve the last good response from the cache.
     # Breaker open + no fallback -> fail fast without calling the dependency.
-    # Every successful call refreshes the cache.
+    # Every successful call with good data refreshes the cache.
     if db.get_control(f"circuit.{dependency}") == "open":
         if db.get_control(f"fallback.{dependency}", False):
             rows = db.query("SELECT value, ts FROM cache WHERE dependency = ? AND key = ?",
@@ -51,6 +66,8 @@ def call_dependency(dependency: str, key: str, fetch: Callable[[], dict]) -> dic
             raise ToolError(f"{dependency} circuit open and no cached data for '{key}'")
         raise ToolError(f"{dependency} circuit open")
     result = fetch()
+    if not worth_caching(result):
+        return result
     db.execute(
         "INSERT INTO cache(dependency, key, value, ts) VALUES(?, ?, ?, ?) "
         "ON CONFLICT(dependency, key) DO UPDATE SET value = excluded.value, ts = excluded.ts",
