@@ -34,6 +34,15 @@ In a second terminal while `run.py` is running:
 .venv/bin/python -m chaos.faults reset F1    # fix the Vendor API; the doctor closes the breaker (RESTORE)
 ```
 
+## Try escalation (fault F10: ambiguous evidence)
+
+```bash
+.venv/bin/python -m chaos.faults inject F10  # partial vendor outage + a tool sending garbled requests
+# the health endpoint still says "up", errors are a mix of 503 and 404:
+# no hypothesis reaches 60%, so the doctor takes no action and ESCALATEs to a human
+.venv/bin/python -m chaos.faults reset F10
+```
+
 Mock services (ports in `config.yaml`):
 
 | Service | Port | Endpoints |
@@ -95,3 +104,6 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 - **Verification probes** (one fixed task per agent, checked against its trace and expected answer)
   stand in for the golden health checks until Phase 3.
 - **`run.py` clears leftover faults and breakers** at startup so every run begins healthy.
+- **Escalation instead of guessing.** Without confirmation from a health endpoint, tool errors alone can
+  never push an outage hypothesis to the 60% action threshold. Mixed 4xx/5xx errors add a competing
+  "bad requests" hypothesis. After escalating, the same problem does not reopen an incident for 120 s.
