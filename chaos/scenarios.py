@@ -5,6 +5,7 @@
 #   python -m chaos.scenarios reset S7
 #   python -m chaos.scenarios check            # run every scenario unattended and score the doctor
 #   python -m chaos.scenarios check S7 S9      # only some
+#   python -m chaos.scenarios check --timeout 300   # give the doctor longer per scenario (real LLM)
 #
 # "check" starts its own services, fleet, doctor and health checks, approves approval-tier
 # actions automatically, and for each scenario: injects, waits for the doctor, compares the
@@ -170,7 +171,12 @@ def main(argv: list[str]) -> None:
         reset(argv[1])
         print(f"reset {argv[1]}")
     elif cmd == "check":
-        print_table(run_checks(argv[1:] or list(SCENARIOS)))
+        args, timeout = argv[1:], 180.0
+        if "--timeout" in args:
+            i = args.index("--timeout")
+            timeout = float(args[i + 1])
+            args = args[:i] + args[i + 2:]
+        print_table(run_checks(args or list(SCENARIOS), timeout_s=timeout))
     else:
         sys.exit(f"unknown command '{cmd}'")
 
