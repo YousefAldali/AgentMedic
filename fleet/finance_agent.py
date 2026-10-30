@@ -28,11 +28,17 @@ def seed_golden_po() -> None:
 
 
 def invoice_task() -> str:
-    # A realistic invoice for a recent PO; about 1 in 3 has a wrong total and should be rejected.
-    rows = db.query("SELECT po_id, vendor, total FROM purchase_orders WHERE valid = 1 AND run_id != 'seed' "
-                    "ORDER BY ts DESC LIMIT 20")
+    # A supplier invoice for a recent PO. The supplier bills the real amount (unit price x quantity),
+    # so a PO with a wrong total cannot be matched. About 1 in 3 invoices is overbilled and
+    # should be rejected.
+    rows = db.query("SELECT po_id, vendor, unit_price, quantity FROM purchase_orders "
+                    "WHERE run_id != 'seed' AND vendor IS NOT NULL ORDER BY ts DESC LIMIT 10")
     po = random.choice(rows) if rows else GOLDEN_PO
-    total = po["total"] if random.random() < 0.67 else round(po["total"] * 1.1, 2)
+    try:
+        amount = round(float(po["unit_price"]) * int(po["quantity"]), 2)
+    except (TypeError, ValueError):
+        amount = GOLDEN_PO["total"]
+    total = amount if random.random() < 0.67 else round(amount * 1.1, 2)
     inv = f"INV-{random.randint(1000, 9999)}"
     total_text = f"{total:g}"
     if random.random() < 0.5:
