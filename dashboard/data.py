@@ -152,3 +152,47 @@ def mode_label() -> str:
     if mock_llm():
         return "MOCK mode (scripted AI, free)"
     return f"Real AI · fleet {env('FLEET_MODEL', '-')} · doctor {env('DOCTOR_MODEL', '-')}"
+
+
+# ---------------------------------------------------------- live office view
+SERVICE_NAMES = ("hr_db", "vendor_api", "knowledge_base", "llm")
+
+
+def _doctor_target(message: str, candidates: list[str]) -> str | None:
+    # The first agent or service named in the doctor's latest message is where it walks to.
+    hits = [(message.find(name), name) for name in candidates if name in message]
+    return min(hits)[1] if hits else None
+
+
+def office_state() -> dict:
+    # Everything the animated office needs, in one small JSON document.
+    now = time.time()
+    agents = registry.dependencies()
+    cards = {c["agent"]: c for c in agent_cards()}
+    started = {r["agent"]: r["n"] for r in db.query(
+        "SELECT agent, COUNT(*) AS n FROM runs WHERE started_at >= ? GROUP BY agent", (now - 3,))}
+    open_inc = db.query("SELECT id, symptoms FROM incidents WHERE status = 'open' ORDER BY id DESC LIMIT 1")
+    events = db.query("SELECT incident_id, stage, message, ts FROM doctor_events ORDER BY id DESC LIMIT 1")
+    last = events[0] if events else None
+    doctor = {"target": None, "stage": "IDLE", "message": "All agents healthy. Making rounds.", "incident_id": None,
+              "working": False}
+    if open_inc:
+        sick = sorted({s["agent"] for s in json.loads(open_inc[0]["symptoms"] or "[]")})
+        doctor.update(working=True, incident_id=open_inc[0]["id"], target=sick[0] if sick else None)
+    if last and (open_inc or now - last["ts"] < 8):
+        names = list(agents) + list(SERVICE_NAMES)
+        doctor.update(stage=last["stage"], message=last["message"][:160],
+                      target=_doctor_target(last["message"], names) or doctor["target"])
+        if last["stage"] in ("VERIFY", "REPORT", "RESTORE") and not open_inc:
+            doctor["target"] = None
+    pending = db.query("SELECT action, target FROM approvals WHERE status = 'pending' ORDER BY id LIMIT 1")
+    return {
+        "now": now,
+        "agents": [{"name": a, "status": cards[a]["status"], "health": cards[a]["health"],
+                    "symptom": (cards[a]["symptoms"] or [""])[0], "new_requests": started.get(a, 0),
+                    "deps": agents[a]} for a in agents],
+        "services": [{"name": s["name"], "status": s["status"], "breaker": s["breaker"], "fallback": s["fallback"],
+                      "integrity": s["integrity"]} for s in services()],
+        "doctor": doctor,
+        "pending_approval": f"{pending[0]['action']}({pending[0]['target']})" if pending else None,
+    }
