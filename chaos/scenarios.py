@@ -17,7 +17,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from chaos.faults import FAULTS, reset_all
+from chaos.faults import FAULTS, fresh_start_for_doctor, reset_all
 from common import db, registry
 from common.config import get_config
 
@@ -40,6 +40,7 @@ def truth(sid: str) -> tuple[set[str], bool]:
 def inject(sid: str) -> None:
     for f in SCENARIOS[sid]:
         FAULTS[f].inject()
+    fresh_start_for_doctor()
 
 
 def reset(sid: str) -> None:
