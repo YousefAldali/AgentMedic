@@ -56,7 +56,7 @@ def test_f10_escalates_without_touching_anything(doc, monkeypatch):
     assert db.query("SELECT * FROM actions_log") == []
     assert db.get_control("circuit.vendor_api") is None
     assert doc.verify_calls == []
-    assert "Escalated" in inc["report_md"] and "تم التصعيد" in inc["report_md_ar"]
+    assert "Escalated" in inc["report_md"] and "أُحيلت إلى فريق بشري" in inc["report_md_ar"]
     assert "None. No hypothesis was confident enough" in inc["report_md"]
 
 
@@ -141,3 +141,28 @@ def test_breaker_stays_open_while_health_says_down(doc, monkeypatch):
     fake_http(monkeypatch, [])
     doc.restore_dependencies()
     assert db.get_control("circuit.vendor_api") == "open"
+
+
+ALLOWED_LATIN = {"AgentMedic", "HTTP", "xx", "p95", "PO"}
+
+
+def english_words(text: str) -> list[str]:
+    import re
+    words = re.findall(r"[A-Za-z][A-Za-z_]{2,}", text)
+    return [w for w in words if w not in ALLOWED_LATIN and not re.fullmatch(r"v\d+", w)]
+
+
+def test_arabic_report_has_no_english_for_a_fixed_incident(doc, monkeypatch):
+    use_candidates(monkeypatch, candidate(status="down"))
+    doc.handle([symptom()], time.time() - 30)
+    ar = incident()["report_md_ar"]
+    assert "تقرير الحادثة" in ar and "نظام الموردين" in ar and "فتح قاطع الدائرة" in ar
+    assert english_words(ar) == []
+
+
+def test_arabic_report_has_no_english_for_an_escalation(doc, monkeypatch):
+    use_candidates(monkeypatch, candidate(status="up", errors=MIXED))
+    doc.handle([symptom()], time.time() - 30)
+    ar = incident()["report_md_ar"]
+    assert "الأدلة غير حاسمة" in ar
+    assert english_words(ar) == []
