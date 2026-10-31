@@ -4,6 +4,7 @@ db_path: traces.db
 
 dashboard:
   port: 8501
+  status_port: 8104             # JSON feed for the live office view
 
 services:
   hr_db:          {host: 127.0.0.1, port: 8101, probe: "/employees/E001/leave"}
