@@ -164,6 +164,10 @@ def _doctor_target(message: str, candidates: list[str]) -> str | None:
     return min(hits)[1] if hits else None
 
 
+def cooldown_s() -> float:
+    return get_config()["doctor"]["escalation_cooldown_s"]
+
+
 def office_state() -> dict:
     # Everything the animated office needs, in one small JSON document.
     now = time.time()
@@ -185,6 +189,13 @@ def office_state() -> dict:
                       target=_doctor_target(last["message"], names) or doctor["target"])
         if last["stage"] in ("VERIFY", "REPORT", "RESTORE") and not open_inc:
             doctor["target"] = None
+    if not open_inc and last and last["stage"] == "ESCALATE" and now - last["ts"] < cooldown_s():
+        # Handed to a human: the doctor stays with the agent and waits instead of going home.
+        inc = db.query("SELECT symptoms FROM incidents WHERE id = ?", (last["incident_id"],))
+        sick = sorted({s["agent"] for s in json.loads(inc[0]["symptoms"] or "[]")}) if inc else []
+        left = int(cooldown_s() - (now - last["ts"]))
+        doctor.update(stage="ESCALATE", target=sick[0] if sick else None, working=False,
+                      message=f"Handed to a human. Not reopening this problem for {left} s.")
     pending = db.query("SELECT action, target FROM approvals WHERE status = 'pending' ORDER BY id LIMIT 1")
     return {
         "now": now,
