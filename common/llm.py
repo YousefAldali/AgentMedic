@@ -55,11 +55,13 @@ def _openai_client():
 
 def pick_model(role: str) -> tuple[str, bool]:
     # Return (model name, is_primary) for a caller role: 'fleet' or 'doctor'.
+    # In MOCK mode no real model is used, so the names say so.
+    mock = mock_llm()
     if role == "doctor":
-        return env("DOCTOR_MODEL", "mock-doctor"), False
+        return ("mock-doctor" if mock else env("DOCTOR_MODEL", "mock-doctor")), False
     if db.get_control("llm.route_to_backup", False):
-        return env("BACKUP_MODEL", "mock-backup"), False
-    return env("FLEET_MODEL", "mock-primary"), True
+        return ("mock-backup" if mock else env("BACKUP_MODEL", "mock-backup")), False
+    return ("mock-primary" if mock else env("FLEET_MODEL", "mock-primary")), True
 
 
 def _apply_chaos(is_primary: bool) -> None:
