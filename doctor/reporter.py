@@ -11,6 +11,7 @@ from datetime import datetime
 
 from common import db, llm
 from common.config import mock_llm
+from doctor import report_ar
 
 ACTION_AR = {
     "open_circuit_breaker": "فتح قاطع الدائرة",
@@ -30,7 +31,7 @@ PREVENTION = {
         "إبقاء قاطع دائرة على كل خدمة خارجية حتى يتوقف الطلب بسرعة عند العطل بدل تكرار المحاولات."),
     "rollback_prompt": (
         "Run the golden health checks before any prompt change goes live, and roll back automatically if they fail.",
-        "تشغيل فحوص الصحة الذهبية قبل نشر أي تغيير في التعليمات، والتراجع تلقائيًا عند فشلها."),
+        "تشغيل فحوص الصحة المرجعية قبل نشر أي تغيير في التعليمات، والتراجع تلقائيًا عند فشلها."),
     "rebuild_index": (
         "Verify the search index after every rebuild with known queries, and alert on empty results.",
         "التحقق من فهرس البحث بعد كل إعادة بناء باستعلامات معروفة، والتنبيه عند ظهور نتائج فارغة."),
@@ -74,28 +75,28 @@ def facts(incident: dict, board: dict, actions: list[dict], verification: list[d
 def _template_text(f: dict) -> dict:
     causes = ", ".join(h["cause"] for h in f["root_causes"]) or "no confirmed cause"
     acts = ", ".join(f"{a['action']}({a['target']})" for a in f["actions"] if a["status"] == "done") or "none"
-    acts_ar = "، ".join(f"{ACTION_AR.get(a['action'], a['action'])} ({a['target']})"
-                       for a in f["actions"] if a["status"] == "done") or "لا شيء"
+    acts_ar = "، ".join(report_ar.action_ar(a) for a in f["actions"] if a["status"] == "done") or "لا شيء"
     agents = ", ".join(f["agents"]) or "-"
+    agents_ar = " و".join(report_ar.name(a) for a in f["agents"]) or "-"
+    causes_ar = report_ar.causes_sentence([report_ar.cause_ar(h, {}) for h in f["root_causes"]])
     passes = sum(1 for v in f["verification"] if v["ok"])
     ok = f["status"] == "resolved"
     if ok:
         summary_en = (f"Agents affected: {agents}. Root cause: {causes}. AgentMedic applied {acts} "
                       f"and verified recovery with {passes} passing check rounds.")
-        summary_ar = (f"الوكلاء المتأثرون: {agents}. السبب الجذري: {causes}. نفّذ AgentMedic: {acts_ar}، "
-                      f"وتحقق من التعافي عبر {passes} جولات فحص ناجحة.")
+        summary_ar = (f"تأثر {agents_ar}. {causes_ar} نفّذ AgentMedic الإجراءات التالية: "
+                      f"{acts_ar}، ثم تحقّق من تعافي النظام عبر {passes} جولات فحص ناجحة.")
     else:
         summary_en = (f"Agents affected: {agents}. {f['escalation_reason']} Actions taken: {acts}. "
                       "The incident was escalated to a human.")
-        summary_ar = (f"الوكلاء المتأثرون: {agents}. الأدلة غير حاسمة أو لم يتم التحقق من التعافي، "
-                      f"لذلك لم يخمّن AgentMedic ولم ينفّذ إجراءً غير مؤكد. الإجراءات المنفذة: {acts_ar}. "
-                      "تم تصعيد الحادثة إلى فريق بشري.")
+        summary_ar = (f"تأثر {agents_ar}. {report_ar.escalation_ar(f['escalation_reason'])} "
+                      f"الإجراءات المنفذة: {acts_ar}. أُحيلت الحادثة إلى فريق بشري لمراجعتها.")
     prev = [PREVENTION[a["action"]] for a in f["actions"] if a["action"] in PREVENTION and a["status"] == "done"]
     if not ok:
-        prev.append(("A human should check the vendor API's real error rate and the procurement tool's "
+        prev.append(("A human should check the affected systems' real error rates and the agents' tool "
                      "requests, then add a detector for this pattern.",
-                     "يجب أن يراجع شخص معدل الأخطاء الفعلي في واجهة الموردين وطلبات أداة المشتريات، "
-                     "ثم تضاف قاعدة اكتشاف لهذا النمط."))
+                     "ينبغي أن يراجع أحد أعضاء الفريق نسب الأخطاء الفعلية في الأنظمة المتأثرة وطلبات أدوات الوكلاء، "
+                     "ثم تُضاف قاعدة اكتشاف لهذا النمط."))
     prev = list(dict.fromkeys(prev)) or [("Review the fault and add a detector rule for it.",
                                           "مراجعة العطل وإضافة قاعدة اكتشاف خاصة به.")]
     return {"summary_en": summary_en, "summary_ar": summary_ar,
@@ -176,16 +177,42 @@ def _render(f: dict, text: dict, ar: bool) -> str:
         lines.append(f"- {L('Round', 'جولة')} {v['round']}: **{mark}** · {detail}")
     if f["follow_up"]:
         lines += ["", f"## {L('Current state and follow-up', 'الوضع الحالي والمتابعة')}"]
-        lines += [f"- {x}" for x in f["follow_up"]]
+        lines += [f"- {x[0] if isinstance(x, (list, tuple)) else x}" for x in f["follow_up"]]
     lines += ["", f"## {L('Prevention', 'الوقاية')}"]
     lines += [f"- {x}" for x in text["prevention_ar" if ar else "prevention_en"]]
     return "\n".join(lines) + "\n"
 
 
+def _translate_free_text(f: dict) -> dict:
+    # Real-model mode: the doctor may write hypotheses and evidence in its own words, which the
+    # rule-based Arabic patterns can't cover. Translate just those strings with the model.
+    pending = []
+    for h in f["hypotheses"]:
+        if not report_ar._match(h["cause"].replace(" (direct proof from the rules)", ""), report_ar.CAUSE_PATTERNS):
+            pending.append(h["cause"])
+        pending += [e for e in h["evidence_for"] + h["evidence_against"] if report_ar.evidence_ar(e, {}) is None]
+    pending = list(dict.fromkeys(pending))[:60]
+    if not pending:
+        return {}
+    prompt = ("Translate each English string to clear Modern Standard Arabic for an incident report. Keep "
+              "numbers, percentages and technical identifiers (like vendor_api, HTTP 503) as they are. Reply with "
+              "ONLY a JSON object mapping each original string to its Arabic translation.")
+    try:
+        resp = llm.chat([{"role": "system", "content": prompt},
+                         {"role": "user", "content": json.dumps(pending, ensure_ascii=False)}],
+                        agent="doctor", role="doctor")
+        text = resp.content or ""
+        data = json.loads(text[text.find("{"):text.rfind("}") + 1])
+        return {k: v for k, v in data.items() if isinstance(v, str)}
+    except (llm.LLMError, ValueError):
+        return {}
+
+
 def write_reports(f: dict) -> tuple[str, str]:
     text = None if mock_llm() else _llm_text(f)
     text = text or _template_text(f)
-    return _render(f, text, ar=False), _render(f, text, ar=True)
+    translated = {} if mock_llm() else _translate_free_text(f)
+    return _render(f, text, ar=False), report_ar.render(f, text, translated)
 
 
 if __name__ == "__main__":
