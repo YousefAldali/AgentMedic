@@ -63,14 +63,14 @@ def test_incident_shows_board_metrics_and_both_reports():
 
 def test_hypothesis_rows_mark_root_cause_and_rejected():
     rows = data.hypothesis_rows(data.incident(add_incident()))
-    assert rows[0]["Verdict"] == "✅ root cause" and rows[1]["Verdict"] == "❌ rejected"
+    assert rows[0]["Verdict"] == "root cause" and rows[1]["Verdict"] == "rejected"
 
 
 def test_approve_button_approves_the_pending_action():
     incident_id = add_incident(status="open")
     approval_id = request_approval("rollback_prompt", "hr", incident_id, "bad prompt deployed for hr")
     at = app()
-    assert "Approve `rollback_prompt(hr)`?" in html_text(at)
+    assert "Approve <code>rollback_prompt(hr)</code>?" in html_text(at)
     next(b for b in at.button if b.label == "Approve").click().run()
     row = db.query("SELECT status, decided_by FROM approvals WHERE id = ?", (approval_id,))[0]
     assert row == {"status": "approved", "decided_by": "dashboard"}
