@@ -7,19 +7,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st  # noqa: E402
+import streamlit.components.v1 as components  # noqa: E402
 
 from chaos.faults import reset_all  # noqa: E402
+from common.config import get_config  # noqa: E402
 from chaos.scenarios import SCENARIOS, inject, truth  # noqa: E402
 from dashboard import data  # noqa: E402
 from doctor.actions import decide, pending_approvals  # noqa: E402
 
 st.set_page_config(page_title="AgentMedic", page_icon="🩺", layout="wide")
-st.markdown("""
-<style>
-.st-key-ar_report, .st-key-ar_report table { direction: rtl; text-align: right; }
-.feed-line { font-family: ui-monospace, monospace; font-size: 0.82rem; margin: 0 0 4px 0; }
-</style>
-""", unsafe_allow_html=True)
+st.markdown(
+    "<style>"
+    ".st-key-ar_report, .st-key-ar_report table { direction: rtl; text-align: right; }"
+    ".feed-line { font-family: ui-monospace, monospace; font-size: 0.82rem; margin: 0 0 4px 0; }"
+    "</style>", unsafe_allow_html=True)
 
 STATUS = {"green": "🟢 Healthy", "yellow": "🟡 Degraded / being treated", "red": "🔴 Failing"}
 STAGE_ICON = {"DETECT": "🔎", "MONITOR": "📋", "CORRELATE": "🔗", "DIAGNOSE": "🧠", "TREAT": "💊",
@@ -61,6 +62,12 @@ with st.sidebar:
 # ---------------------------------------------------------- header
 st.title("🩺 AgentMedic")
 st.caption(f"The reliability layer for an enterprise AI agent fleet · {data.mode_label()}")
+
+# The live office animates itself in the browser from the status feed, so it is drawn once
+# here and never re-rendered (re-rendering would restart the animation).
+_office = (Path(__file__).parent / "office.html").read_text(encoding="utf-8")
+_feed = f"http://localhost:{get_config()['dashboard']['status_port']}"
+components.html(_office.replace("__API__", _feed), height=500)
 
 
 @st.fragment(run_every="2s")
