@@ -43,7 +43,7 @@ st.set_page_config(page_title="AgentMedic", page_icon=str(LOGO) if LOGO else "�
 
 CSS = (
     "<style>"
-    ".block-container { padding-top: 1.2rem; max-width: 1500px; }"
+    ".block-container { padding-top: 3.2rem; max-width: 1760px; }"
     ".am-head { display:flex; align-items:center; gap:14px; margin-bottom:6px; }"
     ".am-head img { height:44px; }"
     ".am-title { font-size:1.9rem; font-weight:800; letter-spacing:-0.02em; color:#f1f5f9; }"
@@ -54,7 +54,8 @@ CSS = (
     ".pill.red { background:rgba(239,68,68,.15); color:#f87171; border:1px solid rgba(239,68,68,.4); }"
     ".pill.blue { background:rgba(56,189,248,.12); color:#7dd3fc; border:1px solid rgba(56,189,248,.35); }"
     ".card { background:#111a2e; border:1px solid #1e2a44; border-radius:14px; padding:14px 16px; }"
-    ".kpis { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:6px 0 14px 0; }"
+    ".kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px;"
+    " margin:6px 0 14px 0; }"
     ".kpi .v { font-size:1.9rem; font-weight:800; color:#f8fafc; line-height:1.1; }"
     ".kpi .l { color:#94a3b8; font-size:0.8rem; text-transform:uppercase; letter-spacing:.06em; }"
     ".steps { display:flex; flex-direction:column; gap:8px; margin:10px 0 12px 0; }"
@@ -90,10 +91,22 @@ CSS = (
     "table.fleet { width:100%; border-collapse:collapse; font-size:0.88rem; }"
     "table.fleet th { text-align:left; color:#64748b; font-weight:600; font-size:0.74rem; text-transform:uppercase;"
     " letter-spacing:.05em; padding:6px 8px; border-bottom:1px solid #1e2a44; }"
-    "table.fleet td { padding:8px; border-bottom:1px solid #16213a; color:#e2e8f0; }"
-    ".feed { font-family:ui-monospace,monospace; font-size:0.78rem; color:#cbd5e1; margin:0 0 5px 0; }"
+    "table.fleet td { padding:8px 10px; border-bottom:1px solid #16213a; color:#e2e8f0; white-space:nowrap; }"
+    ".pill { white-space:nowrap; }"
+    ".feed, .feed * { font-family:ui-monospace,monospace !important; font-size:0.78rem !important;"
+    " line-height:1.45 !important; color:#cbd5e1; margin:0 0 5px 0 !important; }"
     ".feed .s { color:#7dd3fc; font-weight:700; }"
     ".st-key-ar_report, .st-key-ar_report table { direction:rtl; text-align:right; }"
+    ".tablewrap { overflow-x:auto; }"
+    ".tl .m .lb { max-width:120px; overflow:hidden; text-overflow:ellipsis; }"
+    # Narrower windows: side-by-side rows stack, cards wrap, nothing gets cut off.
+    "@media (max-width: 1150px) {"
+    " [data-testid='stHorizontalBlock'] { flex-wrap: wrap; }"
+    " [data-testid='stHorizontalBlock'] > [data-testid='stColumn'] { min-width: 100% !important; flex: 1 1 100% !important; }"
+    " .h .ev { grid-template-columns: 1fr; }"
+    " .tl .m .lb { display:none; }"
+    "}"
+    "@media (max-width: 700px) { .am-title { font-size:1.4rem; } .kpi .v { font-size:1.4rem; } }"
     "</style>"
 )
 st.markdown(CSS, unsafe_allow_html=True)
@@ -155,13 +168,13 @@ st.markdown(f"<div class='am-head'>{logo_html}<div><div class='am-title'>AgentMe
 
 
 # ---------------------------------------------------------- row 1: live office + doctor panel
-office_col, doctor_col = st.columns([7.4, 3.6], gap="medium")
+office_col, doctor_col = st.columns([7.8, 3.2], gap="medium")
 with office_col:
     # Our own page (not user input), drawn once and animated in the browser from the status feed,
     # so it never restarts.
     office = (Path(__file__).parent / "office.html").read_text(encoding="utf-8")
     feed = f"http://localhost:{get_config()['dashboard']['status_port']}"
-    st.iframe(office.replace("__API__", feed).replace("__LOGO__", data_url(LOGO)), height=560)
+    st.iframe(office.replace("__API__", feed).replace("__LOGO__", data_url(LOGO)), height="content")
 
 
 @st.fragment(run_every="1s")
@@ -188,9 +201,11 @@ def doctor_panel() -> None:
         at = f"{s['at']:.0f}s" if s["at"] is not None else ""
         rows.append(f"<div class='step {cls}'><div class='dot'></div>{esc(label)}<span class='t'>{at}</span></div>")
     icon = STAGE_ICON.get(info["last_stage"], "•")
+    said = info["last_message"].split(" (failed:")[0].split(" | live:")[0]
+    said = said if len(said) <= 170 else said[:169] + "…"
     st.markdown(f"<div class='card'><div style='display:flex;justify-content:space-between'>"
                 f"<b>Incident #{inc['id']}</b>{status_pill}</div><div class='steps'>{''.join(rows)}</div>"
-                f"<div class='say'>{icon} {esc(info['last_message'][:260])}</div></div>", unsafe_allow_html=True)
+                f"<div class='say'>{icon} {esc(said)}</div></div>", unsafe_allow_html=True)
 
     for a in pending_approvals():
         with st.container(border=True):
@@ -263,11 +278,12 @@ def fleet_table(cards: list[dict]) -> None:
     for c in cards:
         health = "-" if c["health"] is None else f"{c['health']:.2f}"
         prompt = f"v{c['prompt_version']} {'✅' if c['prompt_known_good'] else '⚠️'}"
-        rows.append(f"<tr><td><b>{esc(c['agent'].capitalize())}</b>{' 🩺' if c['under_treatment'] else ''}</td>"
+        name = {"hr": "HR"}.get(c["agent"], c["agent"].capitalize())
+        rows.append(f"<tr><td><b>{esc(name)}</b>{' 🩺' if c['under_treatment'] else ''}</td>"
                     f"<td>{pill(c['status'])}</td><td>{health}</td><td>{c['error_rate']:.0%}</td>"
                     f"<td>{c['p95_ms']} ms</td><td>{c['tokens_per_min']}</td><td>{prompt}</td>"
                     f"<td><span class='chip'>{esc(c['model'])}</span></td></tr>")
-    st.markdown("<div class='card'><table class='fleet'><tr><th>Agent</th><th>Status</th><th>Health</th>"
+    st.markdown("<div class='card tablewrap'><table class='fleet'><tr><th>Agent</th><th>Status</th><th>Health</th>"
                 "<th>Errors</th><th>p95</th><th>Tok/min</th><th>Prompt</th><th>Model</th></tr>"
                 + "".join(rows) + "</table></div>", unsafe_allow_html=True)
     pills = []
@@ -298,11 +314,11 @@ def overview() -> None:
     kpi_strip(cards, incs)
     if incs:
         timeline_bar(incs[0]["id"])
-    board_col, fleet_col = st.columns([6, 5], gap="medium")
+    fleet_table(cards)
+    board_col, feed_col = st.columns([6, 5], gap="medium")
     with board_col:
         hypothesis_cards(incs[0]["id"] if incs else None)
-    with fleet_col:
-        fleet_table(cards)
+    with feed_col:
         doctor_feed()
 
 
