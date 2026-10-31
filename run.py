@@ -2,6 +2,7 @@
 #
 # python run.py                  # services + fleet workload + doctor + health checks (Ctrl+C to stop)
 # python run.py --no-doctor      # without the doctor
+# python run.py --no-dashboard   # without the dashboard
 # python run.py --reset          # wipe traces.db first
 # python run.py --services-only  # only the mock services
 # python run.py --seconds 30     # stop automatically after 30 s
@@ -61,6 +62,7 @@ def main() -> None:
     ap.add_argument("--reset", action="store_true", help="delete traces.db before starting")
     ap.add_argument("--services-only", action="store_true")
     ap.add_argument("--no-doctor", action="store_true")
+    ap.add_argument("--no-dashboard", action="store_true")
     ap.add_argument("--seconds", type=float, default=0, help="auto-stop after N seconds")
     args = ap.parse_args()
 
@@ -86,7 +88,14 @@ def main() -> None:
             threads.append(threading.Thread(target=run_health_forever, args=(stop,), daemon=True))
         for t in threads:
             t.start()
-        print("Running. Ctrl+C to stop.\n")
+    if not args.no_dashboard:
+        port = str(get_config()["dashboard"]["port"])
+        procs.append(subprocess.Popen(
+            [sys.executable, "-m", "streamlit", "run", "dashboard/app.py", "--server.port", port,
+             "--server.headless", "true", "--browser.gatherUsageStats", "false"],
+            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        print(f"  ✓ dashboard at http://localhost:{port}")
+    print("Running. Ctrl+C to stop.\n")
     try:
         deadline = time.time() + args.seconds if args.seconds else None
         while not stop.is_set() and (deadline is None or time.time() < deadline):
