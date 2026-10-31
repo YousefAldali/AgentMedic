@@ -116,11 +116,11 @@ def hypothesis_rows(inc: dict) -> list[dict]:
     rows = []
     for h in inc["board"]["hypotheses"]:
         if h["confidence"] >= threshold:
-            verdict = "✅ root cause"
+            verdict = "root cause"
         elif h["confidence"] >= 0.3:
-            verdict = "❔ inconclusive"
+            verdict = "inconclusive"
         else:
-            verdict = "❌ rejected"
+            verdict = "rejected"
         rows.append({"Cause": h["cause"], "Confidence": h["confidence"], "Verdict": verdict,
                      "Evidence for": "\n".join(h["evidence_for"]) or "-",
                      "Evidence against": "\n".join(h["evidence_against"]) or "-",
