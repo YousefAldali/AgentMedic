@@ -37,14 +37,15 @@ const AGENT = {
   finance: ["Finance", "Invoice checks"], support: ["Support", "Customer help"],
 };
 const SYSTEM = {
-  hr_db: ["🗂️", "HR database"], vendor_api: ["🏢", "Vendor API"],
-  knowledge_base: ["📚", "Knowledge base"], llm: ["🧠", "AI model"],
+  hr_db: ["db", "HR database"], vendor_api: ["store", "Vendor API"],
+  knowledge_base: ["book", "Knowledge base"], llm: ["chip", "AI model"],
 };
 const C = { green: "#22c55e", yellow: "#f59e0b", red: "#ef4444", cyan: "#38bdf8", text: "#e2e8f0",
             dim: "#94a3b8", panel: "rgba(148,163,184,0.06)", line: "rgba(148,163,184,0.18)" };
-const STAGE = { DETECT: ["🔎", "Detecting"], MONITOR: ["📋", "Checking everyone"], CORRELATE: ["🔗", "Correlating"],
-  DIAGNOSE: ["🧠", "Diagnosing"], TREAT: ["💊", "Treating"], VERIFY: ["✅", "Verifying"], REPORT: ["📝", "Writing report"],
-  ESCALATE: ["🙋", "Handed to a human"], RESTORE: ["♻️", "Restoring"], IDLE: ["☕", "Making rounds"] };
+const STAGE = { DETECT: ["#38bdf8", "Detecting"], MONITOR: ["#38bdf8", "Checking everyone"],
+  CORRELATE: ["#38bdf8", "Correlating"], DIAGNOSE: ["#a78bfa", "Diagnosing"], TREAT: ["#f472b6", "Treating"],
+  VERIFY: ["#22c55e", "Verifying"], REPORT: ["#22c55e", "Writing report"], ESCALATE: ["#f59e0b", "Handed to a human"],
+  RESTORE: ["#22c55e", "Restoring"], IDLE: ["#64748b", "Making rounds"] };
 
 let logoImg = null;
 if (LOGO) { logoImg = new Image(); logoImg.src = LOGO; }
@@ -77,7 +78,7 @@ function spawnEnvelope(agent) {
 
 // ---------------------------------------------------------------- doctor path along the corridor
 function spot(name) {
-  if (DESKS[name]) return [DESKS[name][0], CORRIDOR - 34];
+  if (DESKS[name]) return [DESKS[name][0] - 40, CORRIDOR + 14];
   if (SYSTEMS[name]) return [SYSTEMS[name][0], CORRIDOR + 40];
   return HOME;
 }
@@ -105,10 +106,43 @@ function rr(x, y, w, h, r) {
   ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
   ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
 }
-function emoji(ch, x, y, size) {
-  size *= ICON;
-  ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
-  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(ch, x, y);
+function sysIcon(kind, x, y, color) {
+  // Simple line icons drawn on the canvas (database, store, book, chip).
+  ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  glow(color, 8);
+  ctx.beginPath();
+  if (kind === "db") {
+    ctx.ellipse(x, y - 11, 13, 5, 0, 0, Math.PI * 2);
+    ctx.moveTo(x - 13, y - 11); ctx.lineTo(x - 13, y + 11); ctx.ellipse(x, y + 11, 13, 5, 0, Math.PI, 0, true);
+    ctx.lineTo(x + 13, y - 11); ctx.moveTo(x - 13, y); ctx.ellipse(x, y, 13, 5, 0, Math.PI, 0, true);
+  } else if (kind === "store") {
+    ctx.moveTo(x - 14, y - 4); ctx.lineTo(x - 11, y - 14); ctx.lineTo(x + 11, y - 14); ctx.lineTo(x + 14, y - 4);
+    ctx.closePath(); ctx.rect(x - 12, y - 4, 24, 18); ctx.rect(x - 4, y + 4, 8, 10);
+  } else if (kind === "book") {
+    ctx.moveTo(x, y - 9); ctx.quadraticCurveTo(x - 8, y - 14, x - 15, y - 12); ctx.lineTo(x - 15, y + 11);
+    ctx.quadraticCurveTo(x - 8, y + 9, x, y + 14); ctx.quadraticCurveTo(x + 8, y + 9, x + 15, y + 11);
+    ctx.lineTo(x + 15, y - 12); ctx.quadraticCurveTo(x + 8, y - 14, x, y - 9); ctx.lineTo(x, y + 14);
+  } else {
+    rr(x - 11, y - 11, 22, 22, 4); ctx.rect(x - 4.5, y - 4.5, 9, 9);
+    for (const d of [-5, 5]) {
+      ctx.moveTo(x + d, y - 11); ctx.lineTo(x + d, y - 15); ctx.moveTo(x + d, y + 11); ctx.lineTo(x + d, y + 15);
+      ctx.moveTo(x - 11, y + d); ctx.lineTo(x - 15, y + d); ctx.moveTo(x + 11, y + d); ctx.lineTo(x + 15, y + d);
+    }
+  }
+  ctx.stroke(); noGlow(); ctx.restore();
+}
+function checkBadge(x, y, r, alpha) {
+  ctx.save(); ctx.globalAlpha = alpha;
+  glow("#22c55e", 12); ctx.fillStyle = "#22c55e"; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill(); noGlow();
+  ctx.strokeStyle = "#0b1220"; ctx.lineWidth = r / 4; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(x - r * 0.45, y); ctx.lineTo(x - r * 0.1, y + r * 0.35); ctx.lineTo(x + r * 0.5, y - r * 0.35);
+  ctx.stroke(); ctx.restore();
+}
+function warnIcon(x, y, color) {
+  ctx.save(); ctx.fillStyle = color; ctx.beginPath();
+  ctx.moveTo(x, y - 6); ctx.lineTo(x + 6.5, y + 5); ctx.lineTo(x - 6.5, y + 5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(x - 0.9, y - 2.5, 1.8, 4.2); ctx.fillRect(x - 0.9, y + 2.6, 1.8, 1.6);
+  ctx.restore();
 }
 function text(s, x, y, size, color, weight = 600, align = "center") {
   size *= FONT;
@@ -197,10 +231,13 @@ function drawDoctorsOffice() {
     ctx.drawImage(logoImg, 1025 - w / 2, 165 - h / 2, w, h);
     ctx.restore();
   } else {
-    emoji("🩺", 1025, 140, 34); text("AgentMedic", 1025, 175, 13, C.text, 800);
+    ctx.fillStyle = "#2dd4bf"; rr(1017, 125, 16, 44, 5); ctx.fill(); rr(1003, 139, 44, 16, 5); ctx.fill();
+    text("AgentMedic", 1025, 190, 13, C.text, 800);
   }
   ctx.fillStyle = "rgba(148,163,184,0.10)"; rr(990, 410, 70, 40, 8); ctx.fill();
-  emoji("🖥️", 1025, 430, 22);
+  ctx.strokeStyle = "rgba(125,211,252,0.6)"; ctx.lineWidth = 1.6;
+  rr(1010, 418, 30, 19, 3); ctx.stroke(); ctx.beginPath(); ctx.moveTo(1025, 437); ctx.lineTo(1025, 443);
+  ctx.moveTo(1018, 443); ctx.lineTo(1032, 443); ctx.stroke();
 }
 
 function pipePoints(a, d) {
@@ -253,7 +290,7 @@ function drawSystems(t) {
     glow(col, failing(s) ? 18 + 6 * Math.sin(t / 200) : 8);
     ctx.fillStyle = "rgba(15,23,42,0.85)"; ctx.strokeStyle = col; ctx.lineWidth = 1.6;
     rr(x - 92, y - 40, 184, 80, 14); ctx.fill(); ctx.stroke(); noGlow();
-    emoji(SYSTEM[s.name][0], x - 60, y, 30);
+    sysIcon(SYSTEM[s.name][0], x - 60, y, col);
     text(SYSTEM[s.name][1], x + 14, y - 16, 13, C.text, 700);
     let sub = "online";
     if (failing(s)) sub = s.integrity !== "ok" ? "data corrupted" : s.status;
@@ -287,7 +324,11 @@ function drawDesks(t) {
     if (a.symptom) {
       // Just the symptom name, e.g. "tool_error_rate on vendor_api" -> "tool error rate".
       const m = a.symptom.split(": ").pop().split(" (")[0].split(" on ")[0].replaceAll("_", " ");
-      text("⚠ " + (m.length > 20 ? m.slice(0, 19) + "…" : m), x, y + 76, 9, "#fca5a5", 700);
+      const label = m.length > 20 ? m.slice(0, 19) + "…" : m;
+      ctx.font = `700 ${9 * FONT}px Inter, -apple-system, sans-serif`;
+      const lw = ctx.measureText(label).width;
+      warnIcon(x - lw / 2 - 10, y + 76, "#f87171");
+      text(label, x + 6, y + 76, 9, "#fca5a5", 700);
     }
   }
 }
@@ -319,16 +360,17 @@ function drawDoctor(t, dt) {
   ctx.fillStyle = "rgba(56,189,248,0.10)"; ctx.beginPath(); ctx.arc(doc.x, doc.y + bob, 25, 0, Math.PI * 2); ctx.fill();
   noGlow();
   doctorFigure(doc.x, doc.y + bob);
-  let [icon, label] = STAGE[s ? s.stage : "IDLE"] || STAGE.IDLE;
+  let [dotColor, label] = STAGE[s ? s.stage : "IDLE"] || STAGE.IDLE;
   if (walking && doc.target !== "home") label = "On the way";
-  if (state && state.pending_approval) { icon = "✋"; label = "Waiting for your approval"; }
+  if (state && state.pending_approval) { dotColor = C.yellow; label = "Waiting for your approval"; }
   ctx.font = `700 ${11 * FONT}px Inter, -apple-system, sans-serif`;
   const w = ctx.measureText(label).width + 40;
   const warn = state && state.pending_approval;
   ctx.fillStyle = warn ? "rgba(245,158,11,0.18)" : "rgba(15,23,42,0.92)";
   ctx.strokeStyle = warn ? C.yellow : "rgba(56,189,248,0.6)"; ctx.lineWidth = 1.2;
   rr(doc.x - w / 2, doc.y - 60, w, 26, 13); ctx.fill(); ctx.stroke();
-  emoji(icon, doc.x - w / 2 + 15, doc.y - 47, 12);
+  glow(dotColor, 8); ctx.fillStyle = dotColor; ctx.beginPath(); ctx.arc(doc.x - w / 2 + 14, doc.y - 47, 4.5, 0, Math.PI * 2);
+  ctx.fill(); noGlow();
   text(label, doc.x + 9, doc.y - 47, 11, warn ? "#fde68a" : "#bae6fd", 700);
 }
 
@@ -338,7 +380,7 @@ function drawEffects(dt) {
     r.t += dt / 1500;
     ctx.strokeStyle = `rgba(34,197,94,${1 - r.t})`; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(r.x, r.y, 40 + r.t * 70, 0, Math.PI * 2); ctx.stroke();
-    if (r.t < 0.6) emoji("✅", r.x + 80, r.y - 60 - r.t * 20, 20);
+    if (r.t < 0.7) checkBadge(r.x + 80, r.y - 60 - r.t * 20, 11, 1 - r.t);
   }
   sparks = sparks.filter(s => s.t < 1);
   for (const s of sparks) {
