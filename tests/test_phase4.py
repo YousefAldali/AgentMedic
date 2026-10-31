@@ -319,3 +319,17 @@ def test_doctor_killing_runs_is_not_an_llm_failure():
         db.execute("INSERT INTO spans(run_id, agent, step, kind, error, ts) VALUES('k', 'procurement', 1, 'error', ?, ?)",
                    ("run killed by the doctor", time.time()))
     assert "llm_error_rate" not in types(detect(snapshot(start)))
+
+
+def test_reset_or_new_scenario_gives_the_doctor_a_fresh_start(monkeypatch):
+    from chaos import faults
+    from doctor.doctor import Doctor
+    monkeypatch.setattr(faults, "set_service_mode", lambda service, mode: None)
+    doc = Doctor()
+    doc.suppressed[("procurement", "vendor_api")] = time.time() + 120
+    monkeypatch.setattr(doc, "restore_dependencies", lambda: None)
+    monkeypatch.setattr("doctor.doctor.detect", lambda snap: [])
+    time.sleep(0.01)
+    faults.reset_all()
+    doc.tick()
+    assert doc.suppressed == {}
