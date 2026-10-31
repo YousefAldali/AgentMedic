@@ -196,3 +196,64 @@ def office_state() -> dict:
         "doctor": doctor,
         "pending_approval": f"{pending[0]['action']}({pending[0]['target']})" if pending else None,
     }
+
+
+# ---------------------------------------------------------- doctor steps and timeline
+STEPS = [("DETECT", "Detect"), ("DIAGNOSE", "Diagnose"), ("TREAT", "Treat"), ("VERIFY", "Verify"), ("REPORT", "Report")]
+
+
+def doctor_steps(incident_id: int) -> dict:
+    # Which of the doctor's steps are done for an incident, when each started, and
+    # whether it is waiting for a human right now.
+    inc = db.query("SELECT status, first_symptom_at, opened_at, recovered_at FROM incidents WHERE id = ?",
+                   (incident_id,))
+    if not inc:
+        return {}
+    inc = inc[0]
+    events = db.query("SELECT stage, message, ts FROM doctor_events WHERE incident_id = ? ORDER BY id", (incident_id,))
+    first_ts = {}
+    for e in events:
+        first_ts.setdefault(e["stage"], e["ts"])
+    waiting = bool(db.query("SELECT 1 FROM approvals WHERE incident_id = ? AND status = 'pending'", (incident_id,)))
+    start = inc["first_symptom_at"] or inc["opened_at"]
+    steps, reached = [], True
+    for key, label in STEPS:
+        ts = first_ts.get(key)
+        if key == "VERIFY" and inc["recovered_at"]:
+            done = True
+        elif key == "VERIFY":
+            done = False
+        else:
+            done = ts is not None and (key != "TREAT" or not waiting)
+        current = not done and reached
+        steps.append({"key": key, "label": label, "done": done, "current": current and inc["status"] == "open",
+                      "at": round(ts - start, 1) if ts else None})
+        reached = reached and done
+    last = events[-1] if events else None
+    return {"status": inc["status"], "steps": steps, "waiting_approval": waiting,
+            "last_message": last["message"] if last else "", "last_stage": last["stage"] if last else "",
+            "escalated": inc["status"] == "escalated"}
+
+
+def timeline(incident_id: int) -> list[dict]:
+    # Key moments of an incident in seconds since the first symptom.
+    inc = db.query("SELECT * FROM incidents WHERE id = ?", (incident_id,))
+    if not inc:
+        return []
+    inc = inc[0]
+    start = inc["first_symptom_at"] or inc["opened_at"]
+    points = [{"label": "First symptom", "t": 0.0, "kind": "bad"},
+              {"label": "Detected", "t": inc["opened_at"] - start, "kind": "info"}]
+    acts = db.query("SELECT action, target, ts FROM actions_log WHERE incident_id = ? AND result LIKE '%\"done\"%' "
+                    "AND action NOT LIKE 'undo:%' ORDER BY id", (incident_id,))
+    if acts:
+        points.append({"label": f"First fix: {acts[0]['action']}", "t": acts[0]["ts"] - start, "kind": "fix"})
+    approved = db.query("SELECT decided_at FROM approvals WHERE incident_id = ? AND status = 'approved' ORDER BY id",
+                        (incident_id,))
+    if approved:
+        points.append({"label": "Approved by a human", "t": approved[-1]["decided_at"] - start, "kind": "human"})
+    if inc["recovered_at"]:
+        points.append({"label": "Recovery verified", "t": inc["recovered_at"] - start, "kind": "good"})
+    elif inc["status"] == "escalated" and inc["resolved_at"]:
+        points.append({"label": "Escalated to a human", "t": inc["resolved_at"] - start, "kind": "human"})
+    return [dict(p, t=round(max(0.0, p["t"]), 1)) for p in points]
