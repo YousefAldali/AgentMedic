@@ -189,15 +189,26 @@ class Doctor:
             if db.get_control(f"circuit.{dep}") == "open":
                 state = read_state(dep) or {}
                 cached = " and agents are served cached data" if db.get_control(f"fallback.{dep}") else ""
-                follow_up.append(f"{dep} is still {state.get('status', 'unknown')}; its circuit breaker stays "
-                                 f"open{cached}. The doctor closes it automatically once {dep} is healthy.")
+                from doctor.report_ar import STATUS_STILL, name
+                follow_up.append((f"{dep} is still {state.get('status', 'unknown')}; its circuit breaker stays "
+                                  f"open{cached}. The doctor closes it automatically once {dep} is healthy.",
+                                  f"ما زال {name(dep)} {STATUS_STILL.get(state.get('status'), 'خارج الخدمة')}، "
+                                  f"لذلك يبقى قاطع الدائرة مفتوحًا"
+                                  + ("، ويحصل الوكلاء على البيانات الاحتياطية المخزنة" if cached else "")
+                                  + f". سيُغلقه AgentMedic تلقائيًا عند تعافي {name(dep)}."))
         if db.get_control("llm.route_to_backup"):
-            follow_up.append("Fleet LLM calls still go to the backup model. Switch back once the primary "
-                             "model's latency is normal again.")
+            follow_up.append(("Fleet LLM calls still go to the backup model. Switch back once the primary "
+                              "model's latency is normal again.",
+                              "ما زالت استدعاءات الوكلاء تذهب إلى النموذج الاحتياطي. يُعاد التحويل إلى النموذج "
+                              "الأساسي عند عودة زمن استجابته إلى طبيعته."))
         for agent in registry.dependencies():
             if db.get_control(f"agent.{agent}.max_steps") is not None:
-                follow_up.append(f"{agent} runs are capped at {db.get_control(f'agent.{agent}.max_steps')} steps "
-                                 "to contain the loop. A human should fix what makes the tool loop, then lift the cap.")
+                from doctor.report_ar import name as ar_name
+                cap = db.get_control(f"agent.{agent}.max_steps")
+                follow_up.append((f"{agent} runs are capped at {cap} steps to contain the loop. A human should "
+                                  "fix what makes the tool loop, then lift the cap.",
+                                  f"حُدّد تشغيل {ar_name(agent)} بسقف {cap} خطوات لاحتواء الحلقة. ينبغي أن يعالج "
+                                  "أحد أعضاء الفريق سبب تكرار الأداة، ثم يُرفع هذا السقف."))
         en, ar = write_reports(facts(incident, board_dict, done_actions, verification, follow_up,
                                      escalation_reason))
         db.execute("UPDATE incidents SET report_md = ?, report_md_ar = ? WHERE id = ?", (en, ar, incident_id))
