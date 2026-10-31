@@ -1,5 +1,6 @@
 # The doctor's decisions end to end: fix, escalate, stay quiet after escalating,
 # and only trust a service again after real test requests succeed.
+import json
 import time
 
 import httpx
@@ -166,3 +167,26 @@ def test_arabic_report_has_no_english_for_an_escalation(doc, monkeypatch):
     ar = incident()["report_md_ar"]
     assert "الأدلة غير حاسمة" in ar
     assert english_words(ar) == []
+
+
+def test_root_causes_from_every_round_are_kept(doc, monkeypatch):
+    # Round 1 finds a bad prompt and fixes it; round 2 finds a loop. Both must stay on the record.
+    from doctor.diagnoser import Fix
+    rounds = [
+        Board(hypotheses=[Hypothesis(cause="bad prompt deployed for procurement", affected_agents=["procurement"],
+                                     confidence=0.8, proposed_fix=[Fix(action="switch_model", target="llm")]),
+                          Hypothesis(cause="noise", affected_agents=["procurement"], confidence=0.1)]),
+        Board(hypotheses=[Hypothesis(cause="runaway tool loop in procurement", affected_agents=["procurement"],
+                                     confidence=0.85, proposed_fix=[Fix(action="set_step_cap", target="procurement")]),
+                          Hypothesis(cause="noise", affected_agents=["procurement"], confidence=0.1)]),
+    ]
+    monkeypatch.setattr(doctor_mod, "diagnose", lambda c, s: rounds.pop(0))
+    use_candidates(monkeypatch, candidate(status="down"))
+    results = iter([(False, []), (True, [{"round": 1, "ok": True, "passes": 1, "probes": {}, "live_symptoms": []}])])
+    monkeypatch.setattr(doctor_mod, "verify", lambda agents, since, cb: next(results))
+    doc.handle([symptom()], time.time() - 30)
+    inc = incident()
+    assert json.loads(inc["root_causes"]) == ["bad prompt deployed for procurement", "runaway tool loop in procurement"]
+    causes = {h["cause"] for h in json.loads(inc["hypotheses"])["hypotheses"]}
+    assert {"bad prompt deployed for procurement", "runaway tool loop in procurement"} <= causes
+    assert "bad prompt deployed for procurement" in inc["report_md"]
