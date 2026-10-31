@@ -4,6 +4,7 @@
 #   python -m benchmark.run_benchmark S7 S8              # only some scenarios
 #   python -m benchmark.run_benchmark --timeout 150      # seconds each remediator gets per scenario
 #   MOCK_LLM=0 python -m benchmark.run_benchmark         # with the real models (costs money)
+#   python -m benchmark.run_benchmark --only agentmedic  # rerun one side, keep the other side's last results
 #
 # A neutral judge decides recovery for both remediators the same way: every agent passes all
 # its golden checks and no symptom of any kind is visible, twice in a row. Results go to
@@ -141,7 +142,7 @@ def run_one(sid: str, remediator, label: str, timeout_s: float, settle_s: float)
 
 
 # ---------------------------------------------------------------- the whole benchmark
-def run(ids: list[str], timeout_s: float, settle_s: float) -> list[Row]:
+def run(ids: list[str], timeout_s: float, settle_s: float, only: str | None = None) -> list[Row]:
     os.environ["AUTO_APPROVE"] = "1"
     from doctor.doctor import Doctor
     from doctor.monitor import run_health_forever
@@ -163,7 +164,10 @@ def run(ids: list[str], timeout_s: float, settle_s: float) -> list[Row]:
         t.start()
     rows = []
     try:
-        for label, remediator in (("AgentMedic", Doctor()), ("Naive retry + restart", NaiveRemediator())):
+        sides = (("AgentMedic", Doctor()), ("Naive retry + restart", NaiveRemediator()))
+        for label, remediator in sides:
+            if only and not label.lower().startswith(only):
+                continue
             switch.current = remediator
             for sid in ids:
                 rows.append(run_one(sid, remediator, label, timeout_s, settle_s))
@@ -196,7 +200,17 @@ def summary(rows: list[Row]) -> dict:
     return out
 
 
-def write_outputs(rows: list[Row]) -> dict:
+def keep_other_side(rows: list[Row], only: str) -> tuple[list[Row], str]:
+    # Reuse the other remediator's rows from the last full run (its code did not change).
+    previous = json.loads((RESULTS / "benchmark.json").read_text(encoding="utf-8"))
+    kept = [Row(**r) for r in previous["rows"] if not r["remediator"].lower().startswith(only)]
+    note = (f"{', '.join(sorted({r.remediator for r in kept}))} results are from the previous full run "
+            f"({previous.get('finished_at', 'an earlier run')}); only {only} was rerun.")
+    ordered = [r for r in rows + kept if r.remediator == "AgentMedic"] + [r for r in rows + kept if r.remediator != "AgentMedic"]
+    return ordered, note
+
+
+def write_outputs(rows: list[Row], note: str = "") -> dict:
     RESULTS.mkdir(parents=True, exist_ok=True)
     with open(RESULTS / "benchmark.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(asdict(rows[0])))
@@ -204,9 +218,11 @@ def write_outputs(rows: list[Row]) -> dict:
         w.writerows(asdict(r) for r in rows)
     s = summary(rows)
     (RESULTS / "benchmark.json").write_text(json.dumps({"mode": "mock" if mock_llm() else "real", "summary": s,
+                                                        "finished_at": time.strftime("%Y-%m-%d %H:%M"), "note": note,
                                                         "rows": [asdict(r) for r in rows]}, indent=2), encoding="utf-8")
     lines = ["# Benchmark: AgentMedic vs naive retry + restart", "",
-             f"Mode: {'MOCK (scripted model)' if mock_llm() else 'real models'} · scenarios: {len(set(r.scenario for r in rows))}", "",
+             f"Mode: {'MOCK (scripted model)' if mock_llm() else 'real models'} · scenarios: {len(set(r.scenario for r in rows))}"
+             + (f"  \n{note}" if note else ""), "",
              "| Remediator | Recovery rate | Mean time to recover | Root causes found | Wrong / unnecessary actions | "
              "Correct escalations (F10) |", "|---|---|---|---|---|---|"]
     for label, m in s.items():
@@ -229,9 +245,13 @@ def main() -> None:
     ap.add_argument("scenarios", nargs="*")
     ap.add_argument("--timeout", type=float, default=150)
     ap.add_argument("--settle", type=float, default=10)
+    ap.add_argument("--only", choices=["agentmedic", "naive"])
     args = ap.parse_args()
-    rows = run(args.scenarios or list(SCENARIOS), args.timeout, args.settle)
-    write_outputs(rows)
+    rows = run(args.scenarios or list(SCENARIOS), args.timeout, args.settle, args.only)
+    note = ""
+    if args.only:
+        rows, note = keep_other_side(rows, args.only)
+    write_outputs(rows, note)
     from benchmark.chart import draw
     draw(rows)
 
