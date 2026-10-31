@@ -18,6 +18,7 @@ from chaos.faults import reset_all  # noqa: E402
 from chaos.scenarios import SCENARIOS, inject, truth  # noqa: E402
 from common.config import ROOT, get_config  # noqa: E402
 from dashboard import data  # noqa: E402
+from dashboard.icons import stage as stage_icon, svg  # noqa: E402
 from doctor.actions import decide, pending_approvals  # noqa: E402
 
 LOGO_NAMES = ("logo.svg", "logo.png", "AgentMedic.svg", "AgentMedic.png", "agentmedic.svg", "agentmedic.png")
@@ -41,7 +42,7 @@ def data_url(path: Path | None) -> str:
 LOGO = find_logo()
 ICON = Path(__file__).parent / "assets" / "icon.png"
 ICON = ICON if ICON.exists() else LOGO
-st.set_page_config(page_title="AgentMedic", page_icon=str(ICON) if ICON else "🩺", layout="wide")
+st.set_page_config(page_title="AgentMedic", page_icon=str(ICON) if ICON else ":material/health_and_safety:", layout="wide")
 
 CSS = (
     "<style>"
@@ -85,6 +86,7 @@ CSS = (
     ".h .top { display:flex; align-items:center; gap:10px; }"
     ".h .cause { font-weight:700; color:#f1f5f9; flex:1; }"
     ".h .pct { font-weight:800; color:#f8fafc; font-variant-numeric:tabular-nums; }"
+    ".h .verdict { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }"
     ".h .cb { height:6px; background:#1e2a44; border-radius:3px; margin:8px 0; overflow:hidden; }"
     ".h .cb div { height:100%; border-radius:3px; }"
     ".h .ev { display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.82rem; color:#94a3b8; }"
@@ -115,8 +117,6 @@ CSS = (
 st.markdown(CSS, unsafe_allow_html=True)
 
 STATUS_PILL = {"green": ("green", "Healthy"), "yellow": ("yellow", "Degraded"), "red": ("red", "Failing")}
-STAGE_ICON = {"DETECT": "🔎", "MONITOR": "📋", "CORRELATE": "🔗", "DIAGNOSE": "🧠", "TREAT": "💊",
-              "VERIFY": "✅", "REPORT": "📝", "ESCALATE": "🙋", "RESTORE": "♻️"}
 SCENARIO_NAMES = {
     "F1": "Vendor API down", "F2": "Bad HR prompt", "F3": "Knowledge base corrupted", "F4": "Slow AI model",
     "F5": "Runaway loop", "F6": "Cascade: bad POs break Finance", "F10": "Unclear evidence (should escalate)",
@@ -136,25 +136,26 @@ def esc(s) -> str:
 
 def pill(status: str) -> str:
     cls, label = STATUS_PILL.get(status, ("blue", status))
-    return f"<span class='pill {cls}'>● {label}</span>"
+    return f"<span class='pill {cls}'>{svg('dot', 10)} {label}</span>"
 
 
 # ---------------------------------------------------------- sidebar: chaos panel (demo operator)
 with st.sidebar:
     if LOGO:
         st.image(str(LOGO), width=150)
-    st.header("🧪 Chaos panel")
+    st.header(":material/science: Chaos panel")
     st.caption("Break things on purpose and watch the doctor recover.")
-    if st.button("▶ Demo: S7 (Vendor API down + bad HR prompt)", type="primary", width="stretch"):
+    if st.button("Run demo: S7 (Vendor API down + bad HR prompt)", icon=":material/play_arrow:", type="primary",
+                 width="stretch"):
         inject("S7")
         st.toast("Injected S7: Vendor API down + bad HR prompt")
     sid = st.selectbox("Scenario", list(SCENARIOS), format_func=lambda s: f"{s} · {SCENARIO_NAMES.get(s, '')}")
     expected, escalate = truth(sid)
     st.caption("Expected: " + ("the doctor escalates to a human" if escalate else ", ".join(sorted(expected))))
-    if st.button("Inject scenario", width="stretch"):
+    if st.button("Inject scenario", icon=":material/bolt:", width="stretch"):
         inject(sid)
         st.toast(f"Injected {sid}")
-    if st.button("♻ Reset all", width="stretch"):
+    if st.button("Reset all", icon=":material/restart_alt:", width="stretch"):
         reset_all()
         st.toast("All faults reset, known-good prompts restored")
     st.divider()
@@ -164,7 +165,7 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------- header
-logo_html = f"<img src='{data_url(ICON)}'/>" if ICON else "<span style='font-size:2.2rem'>🩺</span>"
+logo_html = f"<img src='{data_url(ICON)}'/>" if ICON else svg("activity", 40, "#2dd4bf")
 st.markdown(f"<div class='am-head'>{logo_html}<div><div class='am-title'>AgentMedic</div>"
             f"<div class='am-sub'>The reliability layer for an enterprise AI agent fleet · "
             f"<span class='pill blue'>{esc(data.mode_label())}</span></div></div></div>", unsafe_allow_html=True)
@@ -183,7 +184,8 @@ with office_col:
 @st.fragment(run_every="1s")
 def doctor_panel() -> None:
     incs = data.incidents(1)
-    st.markdown("<div class='am-sub' style='margin-bottom:4px'>🧑‍⚕️ THE DOCTOR</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='am-sub' style='margin-bottom:4px'>{svg('stethoscope', 15)} THE DOCTOR</div>",
+                unsafe_allow_html=True)
     if not incs:
         st.markdown("<div class='card'><b>All quiet.</b><br><span class='am-sub'>Watching the fleet. "
                     "Use the chaos panel to break something.</span></div>", unsafe_allow_html=True)
@@ -203,7 +205,7 @@ def doctor_panel() -> None:
             label = "Verify · handed to a human"
         at = f"{s['at']:.0f}s" if s["at"] is not None else ""
         rows.append(f"<div class='step {cls}'><div class='dot'></div>{esc(label)}<span class='t'>{at}</span></div>")
-    icon = STAGE_ICON.get(info["last_stage"], "•")
+    icon = stage_icon(info["last_stage"], 15, "#7dd3fc")
     said = info["last_message"].split(" (failed:")[0].split(" | live:")[0]
     said = said if len(said) <= 170 else said[:169] + "…"
     st.markdown(f"<div class='card'><div style='display:flex;justify-content:space-between'>"
@@ -212,13 +214,15 @@ def doctor_panel() -> None:
 
     for a in pending_approvals():
         with st.container(border=True):
-            st.markdown(f"✋ **Approve `{a['action']}({a['target']})`?**  \n"
-                        f"<span class='am-sub'>{esc(a['reason'])}</span>", unsafe_allow_html=True)
+            st.markdown(f"<div style='margin-bottom:6px'>{svg('hand', 18, '#fbbf24')} <b>Approve "
+                        f"<code>{esc(a['action'])}({esc(a['target'])})</code>?</b><br>"
+                        f"<span class='am-sub'>{esc(a['reason'])}</span></div>", unsafe_allow_html=True)
             b1, b2 = st.columns(2)
-            if b1.button("Approve", key=f"approve_{a['id']}", type="primary", width="stretch"):
+            if b1.button("Approve", key=f"approve_{a['id']}", icon=":material/check:", type="primary",
+                         width="stretch"):
                 decide(a["id"], approve=True, by="dashboard")
                 st.toast(f"Approved {a['action']}({a['target']})")
-            if b2.button("Reject", key=f"reject_{a['id']}", width="stretch"):
+            if b2.button("Reject", key=f"reject_{a['id']}", icon=":material/close:", width="stretch"):
                 decide(a["id"], approve=False, by="dashboard")
                 st.toast(f"Rejected {a['action']}({a['target']})")
 
@@ -265,14 +269,16 @@ def hypothesis_cards(incident_id: int | None) -> None:
         return
     out = []
     for r in rows:
-        root = r["Verdict"].startswith("✅")
-        color = "#22c55e" if root else "#f59e0b" if r["Verdict"].startswith("❔") else "#475569"
+        root = r["Verdict"] == "root cause"
+        color = "#22c55e" if root else "#f59e0b" if r["Verdict"] == "inconclusive" else "#475569"
+        mark = svg({"root cause": "check", "inconclusive": "help"}.get(r["Verdict"], "x"), 18, color)
         fixes = "".join(f"<span class='chip'>{esc(f.strip())}</span>" for f in r["Fix"].split(", ") if f != "-")
         ev_for = esc(r["Evidence for"]).replace("\n", "<br>")
         ev_against = esc(r["Evidence against"]).replace("\n", "<br>")
         out.append(
-            f"<div class='h {'root' if root else ''}'><div class='top'><span>{r['Verdict'].split(' ')[0]}</span>"
-            f"<span class='cause'>{esc(r['Cause'])}</span><span class='pct'>{r['Confidence']:.0%}</span></div>"
+            f"<div class='h {'root' if root else ''}'><div class='top'>{mark}"
+            f"<span class='cause'>{esc(r['Cause'])}</span><span class='verdict' style='color:{color}'>"
+            f"{r['Verdict']}</span><span class='pct'>{r['Confidence']:.0%}</span></div>"
             f"<div class='cb'><div style='width:{r['Confidence'] * 100:.0f}%;background:{color}'></div></div>"
             f"<div class='ev'><div><b>Evidence for</b><br>{ev_for}</div><div><b>Evidence against</b><br>{ev_against}"
             f"</div></div><div style='margin-top:6px'>{fixes}</div></div>")
@@ -284,9 +290,11 @@ def fleet_table(cards: list[dict]) -> None:
     rows = []
     for c in cards:
         health = "-" if c["health"] is None else f"{c['health']:.2f}"
-        prompt = f"v{c['prompt_version']} {'✅' if c['prompt_known_good'] else '⚠️'}"
+        prompt = (f"v{c['prompt_version']} " + (svg("check", 14, "#4ade80") if c["prompt_known_good"]
+                                                 else svg("alert", 14, "#fbbf24") + " <span class='am-sub'>new</span>"))
         name = {"hr": "HR"}.get(c["agent"], c["agent"].capitalize())
-        rows.append(f"<tr><td><b>{esc(name)}</b>{' 🩺' if c['under_treatment'] else ''}</td>"
+        treating = f" {svg('stethoscope', 14, '#7dd3fc')}" if c["under_treatment"] else ""
+        rows.append(f"<tr><td><b>{esc(name)}</b>{treating}</td>"
                     f"<td>{pill(c['status'])}</td><td>{health}</td><td>{c['error_rate']:.0%}</td>"
                     f"<td>{c['p95_ms']} ms</td><td>{c['tokens_per_min']}</td><td>{prompt}</td>"
                     f"<td><span class='chip'>{esc(c['model'])}</span></td></tr>")
@@ -309,7 +317,7 @@ def doctor_feed() -> None:
     with st.container(height=300):
         for e in data.doctor_feed(40):
             inc_id = f"#{e['incident_id']} " if e["incident_id"] else ""
-            st.markdown(f"<p class='feed'>{t(e['ts'])} {STAGE_ICON.get(e['stage'], '•')} "
+            st.markdown(f"<p class='feed'>{t(e['ts'])} {stage_icon(e['stage'], 13, '#7dd3fc')} "
                         f"<span class='s'>{e['stage']}</span> {inc_id}{esc(e['message'])}</p>",
                         unsafe_allow_html=True)
 
