@@ -74,6 +74,7 @@ CAUSE_PATTERNS = [
 ]
 
 EVIDENCE_PATTERNS = [
+    (r"^confirmed and fixed in an earlier diagnosis round", lambda m: "تأكّد هذا السبب وعولج في جولة تشخيص سابقة"),
     (r"^safety rule: dropped (\w+)\((\w+)\): (.+)$",
      lambda m: f"قاعدة أمان: تم استبعاد إجراء «{ACTION.get(m[1], m[1])}» على {name(m[2])} لعدم وجود دليل كافٍ"),
     (r"^safety rule: .*capped at (\d+)%", lambda m: f"قاعدة أمان: خُفّضت الثقة إلى {m[1]}% لأن الأدلة غير كافية"),
