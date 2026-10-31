@@ -2,6 +2,9 @@
 
 db_path: traces.db
 
+dashboard:
+  port: 8501
+
 services:
   hr_db:          {host: 127.0.0.1, port: 8101, probe: "/employees/E001/leave"}
   vendor_api:     {host: 127.0.0.1, port: 8102, probe: "/quotes?item=laptops&quantity=1"}
