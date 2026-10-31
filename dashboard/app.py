@@ -101,7 +101,13 @@ CSS = (
     ".feed, .feed * { font-family:ui-monospace,monospace !important; font-size:0.78rem !important;"
     " line-height:1.45 !important; color:#cbd5e1; margin:0 0 5px 0 !important; }"
     ".feed .s { color:#7dd3fc; font-weight:700; }"
-    ".st-key-ar_report, .st-key-ar_report table { direction:rtl; text-align:right; }"
+    # Arabic report: right-to-left everywhere inside it, with an Arabic-friendly font.
+    ".st-key-ar_report, .st-key-ar_report * { direction:rtl !important; text-align:right !important; }"
+    ".st-key-ar_report { font-family:'Geeza Pro','Noto Naskh Arabic','Noto Kufi Arabic','Segoe UI',sans-serif;"
+    " line-height:1.9; }"
+    ".st-key-ar_report ul, .st-key-ar_report ol { padding-right:1.4em !important; padding-left:0 !important; }"
+    ".st-key-ar_report table { margin-left:auto; margin-right:0; }"
+    ".st-key-ar_report code { direction:ltr !important; unicode-bidi:isolate; }"
     ".tablewrap { overflow-x:auto; }"
     ".tl .m .lb { max-width:120px; overflow:hidden; text-overflow:ellipsis; }"
     # Narrower windows: side-by-side rows stack, cards wrap, nothing gets cut off.
@@ -355,7 +361,9 @@ def reports() -> None:
     if not inc or not inc["report_md"]:
         st.caption("The doctor is still working on this incident.")
         return
-    en, ar = st.tabs(["English", "العربية"])
+    # ?lang=ar in the address opens the Arabic report first.
+    default = "العربية" if st.query_params.get("lang") == "ar" else "English"
+    en, ar = st.tabs(["English", "العربية"], default=default)
     with en:
         st.markdown(inc["report_md"])
     with ar:
