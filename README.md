@@ -23,6 +23,17 @@ Built for the HUMAIN Future AI Builders Hackathon (Challenge 1: agentic recovery
 3. **Verify and report.** It asks the known questions again until everything passes several times in a row, then
    writes an incident report in English and Arabic.
 
+## Demo
+
+Two failures at once: the supplier system goes down and a bad update reaches the HR agent. The doctor finds both
+causes and waits for a person to approve the risky fix:
+
+![During the incident](docs/dashboard.png)
+
+After approval: the fixes are verified and the report is written. Procurement keeps working on backup prices until the supplier system is back:
+
+![After recovery](docs/dashboard_recovered.png)
+
 ## What makes it different
 
 - Fixes problems on a live system instead of only analysing them afterwards.
