@@ -157,7 +157,7 @@ def _render(f: dict, text: dict, ar: bool) -> str:
             verdict = L("inconclusive", "غير حاسمة")
         else:
             verdict = L("rejected", "مرفوضة")
-        cell = lambda xs: "<br>".join(x.replace("|", "/") for x in xs) or "-"
+        cell = lambda xs: " · ".join(x.replace("|", "/") for x in xs) or "-"
         lines.append(f"| {h['cause']} | {h['confidence']:.0%} | {verdict} | {cell(h['evidence_for'])} | "
                      f"{cell(h['evidence_against'])} |")
     lines += ["", f"## {L('Actions taken', 'الإجراءات المنفذة')}", ""]

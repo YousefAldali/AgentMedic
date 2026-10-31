@@ -212,7 +212,7 @@ def render(f: dict, text: dict, translated: dict | None = None) -> str:
 
         def cell(items):
             out = [x for x in (evidence_ar(i, tr) for i in items) if x]
-            return "<br>".join(x.replace("|", "/") for x in out[:3]) or "-"
+            return " · ".join(x.replace("|", "/") for x in out[:3]) or "-"
         lines.append(f"| {cause_ar(h, tr)} | {h['confidence']:.0%} | {verdict} | {cell(h['evidence_for'])} | "
                      f"{cell(h['evidence_against'])} |")
     lines += ["", "## الإجراءات المنفذة", ""]
