@@ -34,6 +34,7 @@ class Doctor:
         self.cfg = get_config()["doctor"]
         self.watch_from = time.time()
         self.suppressed: dict[tuple, float] = {}
+        self.last_reset = db.get_control("doctor.reset_at", 0)
 
     def reset(self) -> None:
         # Forget past incidents (used between benchmark scenarios).
@@ -62,6 +63,10 @@ class Doctor:
         event(incident_id, "MONITOR", "health-checked every agent: " + ", ".join(scores))
 
     def tick(self) -> None:
+        reset_at = db.get_control("doctor.reset_at", 0)
+        if reset_at > self.last_reset:
+            self.last_reset = reset_at
+            self.reset()
         self.restore_dependencies()
         since = max(time.time() - self.cfg["window_s"], self.watch_from)
         symptoms = self.detect_now(since)
