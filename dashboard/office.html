@@ -44,7 +44,7 @@ const C = { green: "#22c55e", yellow: "#f59e0b", red: "#ef4444", cyan: "#38bdf8"
             dim: "#94a3b8", panel: "rgba(148,163,184,0.06)", line: "rgba(148,163,184,0.18)" };
 const STAGE = { DETECT: ["🔎", "Detecting"], MONITOR: ["📋", "Checking everyone"], CORRELATE: ["🔗", "Correlating"],
   DIAGNOSE: ["🧠", "Diagnosing"], TREAT: ["💊", "Treating"], VERIFY: ["✅", "Verifying"], REPORT: ["📝", "Writing report"],
-  ESCALATE: ["🙋", "Asking a human"], RESTORE: ["♻️", "Restoring"], IDLE: ["☕", "Making rounds"] };
+  ESCALATE: ["🙋", "Handed to a human"], RESTORE: ["♻️", "Restoring"], IDLE: ["☕", "Making rounds"] };
 
 let logoImg = null;
 if (LOGO) { logoImg = new Image(); logoImg.src = LOGO; }
@@ -191,9 +191,11 @@ function drawDoctorsOffice() {
   rr(965, 70, 120, 450, 14); ctx.fill(); ctx.stroke();
   text("DOCTOR'S OFFICE", 1025, 90, 10, "#7dd3fc", 700);
   if (logoImg && logoImg.complete && logoImg.naturalWidth) {
-    const maxW = 92, maxH = 70, k = Math.min(maxW / logoImg.naturalWidth, maxH / logoImg.naturalHeight);
+    const maxW = 104, maxH = 104, k = Math.min(maxW / logoImg.naturalWidth, maxH / logoImg.naturalHeight);
     const w = logoImg.naturalWidth * k, h = logoImg.naturalHeight * k;
-    ctx.drawImage(logoImg, 1025 - w / 2, 150 - h / 2, w, h);
+    ctx.save(); rr(1025 - w / 2, 165 - h / 2, w, h, 12); ctx.clip();
+    ctx.drawImage(logoImg, 1025 - w / 2, 165 - h / 2, w, h);
+    ctx.restore();
   } else {
     emoji("🩺", 1025, 140, 34); text("AgentMedic", 1025, 175, 13, C.text, 800);
   }
