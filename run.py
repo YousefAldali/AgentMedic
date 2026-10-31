@@ -94,6 +94,9 @@ def main() -> None:
             [sys.executable, "-m", "streamlit", "run", "dashboard/app.py", "--server.port", port,
              "--server.headless", "true", "--browser.gatherUsageStats", "false"],
             cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        procs.append(subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "dashboard.status_api:app", "--host", "127.0.0.1",
+             "--port", str(get_config()["dashboard"]["status_port"]), "--log-level", "warning"], cwd=ROOT))
         print(f"  ✓ dashboard at http://localhost:{port}")
     print("Running. Ctrl+C to stop.\n")
     try:
