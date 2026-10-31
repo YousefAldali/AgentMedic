@@ -38,7 +38,9 @@ def snapshot(since: float) -> Snapshot:
         runs=db.query(
             "SELECT run_id, agent, status, total_tokens, total_steps, started_at, ended_at FROM runs "
             "WHERE started_at >= ? AND status != 'running'", (since,)),
-        health=db.query("SELECT agent, score, ts FROM health_checks WHERE ts >= ? ORDER BY ts", (since,)),
+        # The benchmark judge's own checks are not evidence the doctor may use.
+        health=db.query("SELECT agent, score, ts FROM health_checks WHERE ts >= ? "
+                        "AND details NOT LIKE '%\"source\": \"judge\"%' ORDER BY ts", (since,)),
         purchase_orders=db.query(
             "SELECT po_id, valid, ts FROM purchase_orders WHERE ts >= ? AND run_id != 'seed' ORDER BY ts",
             (since,)),
