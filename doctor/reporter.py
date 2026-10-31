@@ -169,11 +169,11 @@ def _render(f: dict, text: dict, ar: bool) -> str:
                        "لا شيء. لم تصل أي فرضية إلى درجة ثقة كافية لتنفيذ إجراء آمن."))
     lines += ["", f"## {L('Verification', 'التحقق')}"]
     for v in f["verification"]:
-        mark = "✅" if v["ok"] else "❌"
+        mark = L("pass", "ناجح") if v["ok"] else L("fail", "فاشل")
         detail = "; ".join(v["probes"].values())
         if v["live_symptoms"]:
             detail += f" | {L('live symptoms', 'أعراض حية')}: {'; '.join(v['live_symptoms'])}"
-        lines.append(f"- {L('Round', 'جولة')} {v['round']} {mark} {detail}")
+        lines.append(f"- {L('Round', 'جولة')} {v['round']}: **{mark}** · {detail}")
     if f["follow_up"]:
         lines += ["", f"## {L('Current state and follow-up', 'الوضع الحالي والمتابعة')}"]
         lines += [f"- {x}" for x in f["follow_up"]]
