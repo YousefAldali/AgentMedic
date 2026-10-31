@@ -4,7 +4,7 @@ An AI agent that monitors a fleet of enterprise AI agents, detects when they fai
 diagnoses the root cause (including several faults at once), fixes them safely,
 verifies recovery, and writes an incident report in English and Arabic.
 
-> Status: **Phase 4 (all faults + multi-fault)** — faults F1–F6 and F10, multi-fault scenarios S7–S10, approval tier, verify-and-retry loop, and an unattended scenario checker.
+> Status: **Phase 5 (dashboard)** — live office view, fleet cards, doctor feed, hypothesis board, approval buttons, chaos panel and EN/AR reports, all in the browser.
 
 ## Setup
 
@@ -22,6 +22,22 @@ cp .env.example .env        # MOCK_LLM=1 by default: no API key needed
 .venv/bin/python run.py --services-only  # only the mock services
 .venv/bin/python run.py --no-doctor      # fleet without the doctor
 ```
+
+## Dashboard
+
+`run.py` opens it at **http://localhost:8501**.
+
+- **Live office:** every agent at a desk (🟢 / 🟡 / 🔴, health bar), request envelopes flying in, the shared
+  systems at the bottom with lines to the agents that use them (red and moving when a system fails), and the
+  doctor walking to whatever it is examining, with its current reasoning in a speech bubble.
+- **Fleet cards:** status, health score, error rate, p95 latency, tokens/min, prompt version, model.
+- **Doctor live feed** and the **hypothesis board** with confidence bars.
+- **Approval panel:** Approve / Reject buttons for approval-tier fixes.
+- **Chaos panel** (sidebar): one-click demo (S7), any scenario, Reset all.
+- **Incident reports** with English and Arabic (right-to-left) tabs, time to detect and time to recover.
+
+Demo in 3 minutes: start `run.py`, open the dashboard, click **▶ Demo: S7**, watch Procurement and HR turn red
+and the doctor walk over, click **Approve** for the prompt rollback, watch everything turn green, open the report.
 
 ## Try the doctor (fault F1: Vendor API down)
 
@@ -79,7 +95,7 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest -q     # 138 tests, offline, about 4 seconds
+.venv/bin/python -m pytest -q     # 144 tests, offline, about 5 seconds
 ```
 
 | File | What it checks |
@@ -91,6 +107,7 @@ All services: `POST /admin/chaos {"mode": "none|down|slow|error_500|corrupt"}`, 
 | `tests/test_doctor.py` | fix vs escalate, no fix -> escalate at once, cooldown, the 5-request check before closing a breaker |
 | `tests/test_faults.py` | the F10 fault itself, and the agent's circuit breaker and cache |
 | `tests/test_phase4.py` | loop, token, empty-result, health-drop and cascade detectors; multi-fault diagnosis; new actions; approvals |
+| `tests/test_dashboard.py` | the dashboard renders, shows the board and reports, Approve/Reject buttons work |
 | `tests/test_golden.py` | golden answer checks, health scores, the finance agent and the procurement → finance hand-off |
 
 ## The fleet
@@ -204,3 +221,6 @@ with a score of 1.0 for several rounds in a row.
   before verifying.
 - **Real models are well behaved:** for F5 the stuck quote answers "retry required", so a real model keeps
   calling (Haiku: 11 times); with a plain "still pending" it sensibly gave up after 2-3 tries.
+- **The live office animates in the browser** from a small JSON feed (`dashboard/status_api.py`, port 8104),
+  so the animation never restarts when the rest of the dashboard refreshes. Where the doctor walks comes from
+  its latest real event: the first agent or system named in it.
