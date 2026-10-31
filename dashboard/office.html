@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; font-family: -apple-system, "Segoe UI", sans-serif; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 14px; }
+</style>
+</head>
+<body>
+<canvas id="office" width="1100" height="470"></canvas>
+<script>
+// Live office: every agent sits at a desk, the shared systems sit at the bottom,
+// and the doctor walks to whatever it is examining. All state comes from the
+// running system through the status feed; nothing here is scripted.
+const API = "__API__";
+const W = 1100, H = 470;
+const cv = document.getElementById("office");
+const ctx = cv.getContext("2d");
+
+const DESKS = { hr: [150, 120], procurement: [390, 120], finance: [630, 120], support: [870, 120] };
+const SYSTEMS = { hr_db: [150, 385], vendor_api: [390, 385], knowledge_base: [630, 385], llm: [870, 385] };
+const SYSTEM_ICON = { hr_db: "🗂️", vendor_api: "🏢", knowledge_base: "📚", llm: "🧠" };
+const SYSTEM_LABEL = { hr_db: "HR database", vendor_api: "Vendor API", knowledge_base: "Knowledge base", llm: "AI model" };
+const AGENT_LABEL = { hr: "HR", procurement: "Procurement", finance: "Finance", support: "Support" };
+const HOME = [1030, 250];
+const COLOR = { green: "#22c55e", yellow: "#f59e0b", red: "#ef4444" };
+const STAGE_ICON = { DETECT: "🔎", MONITOR: "📋", CORRELATE: "🔗", DIAGNOSE: "🧠", TREAT: "💊", VERIFY: "✅",
+                     REPORT: "📝", ESCALATE: "🙋", RESTORE: "♻️", IDLE: "☕" };
+
+let state = null, online = false, lastOk = 0;
+let doc = { x: HOME[0], y: HOME[1] };
+let envelopes = [], bursts = [], lastStage = "";
+
+async function poll() {
+  try {
+    const r = await fetch(API + "/office", { cache: "no-store" });
+    const s = await r.json();
+    for (const a of s.agents) {
+      for (let i = 0; i < Math.min(a.new_requests, 2); i++) {
+        if (Math.random() < 0.35) spawnEnvelope(a.name);
+      }
+    }
+    const key = s.doctor.stage + s.doctor.message;
+    if (key !== lastStage && s.doctor.stage === "VERIFY" && s.doctor.message.startsWith("recovered")) {
+      for (const a of s.agents) bursts.push({ x: DESKS[a.name][0], y: DESKS[a.name][1] - 70, t: 0 });
+    }
+    lastStage = key;
+    state = s; online = true; lastOk = Date.now();
+  } catch (e) {
+    online = false;
+  }
+}
+setInterval(poll, 500);
+poll();
+
+function spawnEnvelope(agent) {
+  const [tx, ty] = DESKS[agent];
+  envelopes.push({ x: -20, y: 30 + Math.random() * 40, tx: tx - 40, ty: ty - 10, t: 0 });
+}
+
+function roundRect(x, y, w, h, r, fill, stroke) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+}
+
+function emoji(ch, x, y, size) {
+  ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(ch, x, y);
+}
+
+function text(str, x, y, size, color, weight = "600", align = "center") {
+  ctx.font = `${weight} ${size}px -apple-system, "Segoe UI", sans-serif`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = "middle";
+  ctx.fillText(str, x, y);
+}
+
+function wrap(str, maxWidth, size) {
+  ctx.font = `500 ${size}px -apple-system, "Segoe UI", sans-serif`;
+  const words = str.split(" "), lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, 3);
+}
+
+function systemFailing(s) {
+  return (s.status !== "up" && s.status !== "primary") || s.integrity !== "ok";
+}
+
+function drawFloor(t) {
+  ctx.clearRect(0, 0, W, H);
+  roundRect(0, 0, W, H, 14, "#f8fafc", null);
+  ctx.fillStyle = "#eef2f7";
+  for (let x = 0; x < W; x += 40) for (let y = 0; y < H; y += 40) if (((x + y) / 40) % 2 === 0) ctx.fillRect(x, y, 40, 40);
+  text("AgentMedic · live office", 18, 22, 15, "#334155", "700", "left");
+  text(online ? "● live" : "● feed offline", W - 18, 22, 13, online ? "#16a34a" : "#dc2626", "600", "right");
+  roundRect(960, 170, 130, 160, 12, "#e0f2fe", "#7dd3fc");
+  text("Doctor's office", 1025, 188, 12, "#0369a1");
+}
+
+function drawLinks(t) {
+  if (!state) return;
+  const sys = Object.fromEntries(state.services.map(s => [s.name, s]));
+  for (const a of state.agents) {
+    const [ax, ay] = DESKS[a.name];
+    for (const d of a.deps) {
+      let tx, ty, bad;
+      if (SYSTEMS[d]) { [tx, ty] = SYSTEMS[d]; ty -= 38; bad = sys[d] && systemFailing(sys[d]); }
+      else if (DESKS[d]) { [tx, ty] = DESKS[d]; tx -= 85; bad = state.agents.find(x => x.name === d)?.status === "red"; }
+      else continue;
+      ctx.beginPath();
+      ctx.setLineDash(bad ? [8, 6] : []);
+      ctx.lineDashOffset = bad ? -t / 40 : 0;
+      ctx.strokeStyle = bad ? "rgba(239,68,68,0.85)" : "rgba(148,163,184,0.45)";
+      ctx.lineWidth = bad ? 3 : 1.5;
+      ctx.moveTo(ax, ay + 48); ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+}
+
+function drawSystems(t) {
+  if (!state) return;
+  for (const s of state.services) {
+    const [x, y] = SYSTEMS[s.name];
+    const bad = systemFailing(s);
+    const backup = s.name === "llm" && s.status === "backup";
+    const fill = bad ? "#fee2e2" : backup ? "#fef3c7" : "#dcfce7";
+    const stroke = bad ? "#ef4444" : backup ? "#f59e0b" : "#86efac";
+    roundRect(x - 85, y - 38, 170, 76, 12, fill, stroke);
+    emoji(SYSTEM_ICON[s.name], x - 52, y, 30);
+    text(SYSTEM_LABEL[s.name], x + 18, y - 12, 13, "#1e293b");
+    let sub = bad ? (s.integrity !== "ok" ? "data broken" : s.status) : backup ? "on backup model" : "ok";
+    text(sub, x + 18, y + 6, 12, bad ? "#b91c1c" : backup ? "#b45309" : "#15803d", "500");
+    const tags = [];
+    if (s.breaker === "open") tags.push("⛔ breaker open");
+    if (s.fallback && s.name !== "llm") tags.push("💾 backup data");
+    if (tags.length) text(tags.join("  "), x + 18, y + 23, 10, "#475569", "500");
+  }
+}
+
+function drawDesks(t) {
+  if (!state) return;
+  for (const a of state.agents) {
+    const [x, y] = DESKS[a.name];
+    const c = COLOR[a.status] || "#94a3b8";
+    if (a.status === "red") {
+      const pulse = 6 + 4 * Math.sin(t / 180);
+      roundRect(x - 85 - pulse, y - 60 - pulse, 170 + 2 * pulse, 120 + 2 * pulse, 18, null, "rgba(239,68,68,0.35)");
+    }
+    roundRect(x - 85, y - 60, 170, 120, 14, "#ffffff", c);
+    roundRect(x - 60, y + 14, 120, 18, 5, "#d6c7b0", null);
+    const bob = a.status === "red" ? Math.sin(t / 90) * 2 : Math.sin(t / 600 + x) * 1.5;
+    emoji(a.status === "red" ? "😵" : "🧑‍💼", x, y - 18 + bob, 36);
+    emoji("💻", x + 38, y + 4, 20);
+    text(AGENT_LABEL[a.name], x, y + 44, 14, "#0f172a", "700");
+    ctx.beginPath(); ctx.arc(x + 68, y - 44, 7, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill();
+    const h = a.health == null ? 1 : a.health;
+    roundRect(x - 60, y - 54, 100, 6, 3, "#e2e8f0", null);
+    roundRect(x - 60, y - 54, Math.max(4, 100 * h), 6, 3, c, null);
+    if (a.symptom) {
+      const msg = a.symptom.length > 34 ? a.symptom.slice(0, 33) + "…" : a.symptom;
+      text("⚠ " + msg, x, y + 70, 11, "#b91c1c", "500");
+    }
+  }
+}
+
+function drawEnvelopes(dt) {
+  envelopes = envelopes.filter(e => e.t < 1);
+  for (const e of envelopes) {
+    e.t += dt / 1400;
+    const k = Math.min(1, e.t), ease = k * k * (3 - 2 * k);
+    const x = e.x + (e.tx - e.x) * ease, y = e.y + (e.ty - e.y) * ease - Math.sin(k * Math.PI) * 30;
+    emoji("📨", x, y, 18);
+  }
+}
+
+function targetPos() {
+  const d = state && state.doctor;
+  if (!d || !d.target) return HOME;
+  if (DESKS[d.target]) return [DESKS[d.target][0] - 120, DESKS[d.target][1] + 40];
+  if (SYSTEMS[d.target]) return [SYSTEMS[d.target][0] - 125, SYSTEMS[d.target][1] - 40];
+  return HOME;
+}
+
+function drawDoctor(t, dt) {
+  const [tx, ty] = targetPos();
+  const dx = tx - doc.x, dy = ty - doc.y, dist = Math.hypot(dx, dy);
+  const speed = 0.28 * dt;
+  if (dist > 1) { const k = Math.min(1, speed / dist); doc.x += dx * k; doc.y += dy * k; }
+  const walking = dist > 4;
+  const bob = walking ? Math.abs(Math.sin(t / 90)) * -6 : 0;
+  ctx.beginPath(); ctx.ellipse(doc.x, doc.y + 24, 18, 5, 0, 0, Math.PI * 2); ctx.fillStyle = "rgba(15,23,42,0.15)"; ctx.fill();
+  emoji("🧑‍⚕️", doc.x, doc.y + bob, 40);
+  if (state && state.doctor.working && !walking) emoji(state.doctor.stage === "TREAT" ? "🔧" : "🩺", doc.x + 24, doc.y - 18, 20);
+  drawBubble(t);
+}
+
+function drawBubble(t) {
+  if (!state) return;
+  const d = state.doctor;
+  let msg = `${STAGE_ICON[d.stage] || "•"} ${d.stage === "IDLE" ? "" : d.stage + ": "}${d.message}`;
+  let warn = false;
+  if (state.pending_approval) { msg = `✋ Waiting for your approval: ${state.pending_approval}. Click Approve below.`; warn = true; }
+  const lines = wrap(msg, 270, 13);
+  const bw = 290, bh = 16 + lines.length * 18;
+  let bx = Math.min(W - bw - 10, Math.max(10, doc.x - bw / 2)), by = doc.y - 52 - bh;
+  if (by < 34) by = doc.y + 34;
+  roundRect(bx, by, bw, bh, 10, warn ? "#fff7ed" : "#ffffff", warn ? "#fb923c" : "#cbd5e1");
+  lines.forEach((l, i) => text(l, bx + 10, by + 17 + i * 18, 13, "#0f172a", "500", "left"));
+}
+
+function drawBursts(dt) {
+  bursts = bursts.filter(b => b.t < 1);
+  for (const b of bursts) {
+    b.t += dt / 1600;
+    ctx.globalAlpha = 1 - b.t;
+    emoji("✅", b.x, b.y - b.t * 30, 26);
+    ctx.globalAlpha = 1;
+  }
+}
+
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min(64, now - prev); prev = now;
+  drawFloor(now);
+  drawLinks(now);
+  drawSystems(now);
+  drawDesks(now);
+  drawEnvelopes(dt);
+  drawDoctor(now, dt);
+  drawBursts(dt);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
