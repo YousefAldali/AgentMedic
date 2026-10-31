@@ -90,6 +90,7 @@ class Doctor:
                        (json.dumps([s.to_dict() for s in symptoms]), incident_id))
 
         done_actions, verification, board, recovered = [], [], None, False
+        confirmed = []  # root causes from every diagnosis round, so a later round never erases an earlier one
         escalation_reason = ""
         for loop in range(1, self.cfg["max_diagnose_loops"] + 1):
             candidates = correlate(symptoms, since)
@@ -105,8 +106,18 @@ class Doctor:
                 verdict = "ROOT CAUSE" if h in causes else "inconclusive" if h.confidence >= 0.3 else "rejected"
                 why = h.evidence_against[0] if h.evidence_against and h not in causes else (h.evidence_for or [""])[0]
                 event(incident_id, "DIAGNOSE", f"[{h.confidence:.0%}] {h.cause} - {verdict}. {why}")
+            for h in causes:
+                if h.cause not in {c.cause for c in confirmed}:
+                    confirmed.append(h.model_copy(deep=True))
+            current = {h.cause for h in board.hypotheses}
+            for h in confirmed:
+                if h.cause not in current:
+                    earlier = h.model_copy(deep=True)
+                    earlier.evidence_for = ["confirmed and fixed in an earlier diagnosis round"] + earlier.evidence_for
+                    board.hypotheses.append(earlier)
+            board.hypotheses.sort(key=lambda h: -h.confidence)
             db.execute("UPDATE incidents SET hypotheses = ?, root_causes = ? WHERE id = ?",
-                       (board.model_dump_json(), json.dumps([h.cause for h in causes]), incident_id))
+                       (board.model_dump_json(), json.dumps([h.cause for h in confirmed]), incident_id))
             if not causes:
                 top = board.hypotheses[0]
                 escalation_reason = (f"Evidence is ambiguous: the best hypothesis ('{top.cause}') is only "
