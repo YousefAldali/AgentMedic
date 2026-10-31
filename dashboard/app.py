@@ -39,7 +39,9 @@ def data_url(path: Path | None) -> str:
 
 
 LOGO = find_logo()
-st.set_page_config(page_title="AgentMedic", page_icon=str(LOGO) if LOGO else "🩺", layout="wide")
+ICON = Path(__file__).parent / "assets" / "icon.png"
+ICON = ICON if ICON.exists() else LOGO
+st.set_page_config(page_title="AgentMedic", page_icon=str(ICON) if ICON else "🩺", layout="wide")
 
 CSS = (
     "<style>"
@@ -68,11 +70,12 @@ CSS = (
     "@keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(56,189,248,.6);} 100%{box-shadow:0 0 0 10px rgba(56,189,248,0);} }"
     ".say { background:#0b1220; border:1px solid #1e2a44; border-radius:10px; padding:10px 12px; color:#cbd5e1;"
     " font-size:0.88rem; min-height:64px; }"
-    ".tl { position:relative; height:78px; margin:4px 8px 2px 8px; }"
-    ".tl .bar { position:absolute; top:34px; left:0; right:0; height:4px; background:#1e2a44; border-radius:2px; }"
-    ".tl .fill { position:absolute; top:34px; left:0; height:4px; border-radius:2px;"
+    ".tl { position:relative; height:96px; margin:4px 8px 2px 8px; }"
+    ".tl .bar { position:absolute; top:46px; left:0; right:0; height:4px; background:#1e2a44; border-radius:2px; }"
+    ".tl .fill { position:absolute; top:46px; left:0; height:4px; border-radius:2px;"
     " background:linear-gradient(90deg,#ef4444,#f59e0b,#22c55e); }"
-    ".tl .m { position:absolute; top:4px; transform:translateX(-50%); text-align:center; white-space:nowrap; }"
+    ".tl .m { position:absolute; top:16px; transform:translateX(-50%); text-align:center; white-space:nowrap; }"
+    ".tl .m.low { top:36px; }"
     ".tl .m .d { width:18px; height:18px; border-radius:50%; margin:3px auto; border:3px solid #111a2e; }"
     ".tl .m .lb { color:#cbd5e1; font-size:0.74rem; }"
     ".tl .m .tt { color:#64748b; font-size:0.72rem; }"
@@ -139,7 +142,7 @@ def pill(status: str) -> str:
 # ---------------------------------------------------------- sidebar: chaos panel (demo operator)
 with st.sidebar:
     if LOGO:
-        st.image(str(LOGO), width=140)
+        st.image(str(LOGO), width=150)
     st.header("🧪 Chaos panel")
     st.caption("Break things on purpose and watch the doctor recover.")
     if st.button("▶ Demo: S7 (Vendor API down + bad HR prompt)", type="primary", width="stretch"):
@@ -161,7 +164,7 @@ with st.sidebar:
 
 
 # ---------------------------------------------------------- header
-logo_html = f"<img src='{data_url(LOGO)}'/>" if LOGO else "<span style='font-size:2.2rem'>🩺</span>"
+logo_html = f"<img src='{data_url(ICON)}'/>" if ICON else "<span style='font-size:2.2rem'>🩺</span>"
 st.markdown(f"<div class='am-head'>{logo_html}<div><div class='am-title'>AgentMedic</div>"
             f"<div class='am-sub'>The reliability layer for an enterprise AI agent fleet · "
             f"<span class='pill blue'>{esc(data.mode_label())}</span></div></div></div>", unsafe_allow_html=True)
@@ -241,10 +244,14 @@ def timeline_bar(incident_id: int) -> None:
     points = data.timeline(incident_id)
     end = max(p["t"] for p in points) or 1
     span = end * 1.1
+    # Labels alternate above and below the line so close moments don't overlap.
     marks = "".join(
-        f"<div class='m' style='left:{4 + 92 * p['t'] / span:.1f}%'><div class='lb'>{esc(p['label'])}</div>"
-        f"<div class='d' style='background:{TL_COLOR[p['kind']]}'></div><div class='tt'>{p['t']:.0f}s</div></div>"
-        for p in points)
+        (f"<div class='m' style='left:{4 + 92 * p['t'] / span:.1f}%'><div class='lb'>{esc(p['label'])} · "
+         f"{p['t']:.0f}s</div><div class='d' style='background:{TL_COLOR[p['kind']]}'></div></div>")
+        if i % 2 == 0 else
+        (f"<div class='m low' style='left:{4 + 92 * p['t'] / span:.1f}%'><div class='d' "
+         f"style='background:{TL_COLOR[p['kind']]}'></div><div class='lb'>{esc(p['label'])} · {p['t']:.0f}s</div></div>")
+        for i, p in enumerate(points))
     st.markdown(f"<div class='card' style='margin-bottom:14px'><div class='am-sub'>INCIDENT #{incident_id} TIMELINE"
                 f"</div><div class='tl'><div class='bar'></div><div class='fill' style='width:{4 + 92 * end / span:.1f}%'>"
                 f"</div>{marks}</div></div>", unsafe_allow_html=True)
