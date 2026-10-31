@@ -10,6 +10,7 @@
 # "prompt:<agent>" (bad prompt deployed) or "loop:<agent>" (runaway tool loop).
 import json
 import sys
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -93,6 +94,12 @@ FAULTS = {f.id: f for f in [
 CONTROL_PREFIXES = ("circuit.", "fallback.", "llm.", "agent.", "chaos.")
 
 
+def fresh_start_for_doctor() -> None:
+    # Tells the doctor (in whatever process it runs) to forget past incidents and pauses,
+    # so a new test or demo run starts clean.
+    db.set_control("doctor.reset_at", time.time())
+
+
 def reset_all() -> None:
     for service in get_config()["services"]:
         set_service_mode(service, "none")
@@ -101,6 +108,7 @@ def reset_all() -> None:
     for agent in registry.dependencies():
         restore_good_prompt(agent)
     db.execute("UPDATE approvals SET status = 'expired' WHERE status = 'pending'")
+    fresh_start_for_doctor()
 
 
 def main(argv: list[str]) -> None:
@@ -110,6 +118,7 @@ def main(argv: list[str]) -> None:
             print(f"{f.id:<4} {f.name}")
     elif cmd == "inject":
         FAULTS[argv[1]].inject()
+        fresh_start_for_doctor()
         print(f"injected {argv[1]}: {FAULTS[argv[1]].name}")
     elif cmd == "reset":
         FAULTS[argv[1]].reset()
