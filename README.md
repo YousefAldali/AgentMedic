@@ -59,7 +59,7 @@ These runs used scripted AI replies, so every run behaves the same and the compa
 
 ## Quick start
 
-Needs Python 3.10 or newer and an AI model that supports tool calling. Use whichever provider you have.
+Needs Python 3.11 or newer and an AI model that supports tool calling. Use whichever provider you have.
 
 ```bash
 git clone https://github.com/YousefAldali/AgentMedic.git
