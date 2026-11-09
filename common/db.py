@@ -2,6 +2,8 @@
 # it safe to use from many threads and processes at once (WAL mode).
 import json
 import sqlite3
+import threading
+import time
 from typing import Any
 
 from common.config import db_path
@@ -67,10 +69,26 @@ CREATE TABLE IF NOT EXISTS cache (
 
 
 def connect() -> sqlite3.Connection:
+    # WAL mode is stored in the database file (set once in init_db); timeout makes
+    # writers wait for each other instead of failing.
     conn = sqlite3.connect(db_path(), timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
+_local = threading.local()
+
+
+def _shared() -> sqlite3.Connection:
+    # One reused connection per thread (and per database file), instead of opening
+    # a new one for every small read and write.
+    path = str(db_path())
+    conns = getattr(_local, "conns", None)
+    if conns is None:
+        conns = _local.conns = {}
+    conn = conns.get(path)
+    if conn is None:
+        conn = conns[path] = connect()
     return conn
 
 
@@ -81,6 +99,7 @@ def init_db(reset: bool = False) -> None:
             if p.exists():
                 p.unlink()
     with connect() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(SCHEMA)
         # Columns added after Phase 1; add them to older databases too.
         cols = {r[1] for r in conn.execute("PRAGMA table_info(incidents)")}
@@ -91,21 +110,18 @@ def init_db(reset: bool = False) -> None:
 
 def execute(sql: str, params: tuple = ()) -> int:
     # Run a write statement and return the last row id.
-    conn = connect()
+    conn = _shared()
     try:
         cur = conn.execute(sql, params)
         conn.commit()
         return cur.lastrowid
-    finally:
-        conn.close()
+    except BaseException:
+        conn.rollback()
+        raise
 
 
 def query(sql: str, params: tuple = ()) -> list[dict]:
-    conn = connect()
-    try:
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
-    finally:
-        conn.close()
+    return [dict(r) for r in _shared().execute(sql, params).fetchall()]
 
 
 def get_control(key: str, default: Any = None) -> Any:
@@ -119,3 +135,22 @@ def set_control(key: str, value: Any) -> None:
         "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         (key, json.dumps(value)),
     )
+
+
+# Tables that grow with every agent step. Rows older than the retention time are deleted,
+# so the database stays small however long it runs. Incidents and their reports are kept.
+PRUNE = {"spans": "ts", "runs": "started_at", "health_checks": "ts", "doctor_events": "ts"}
+
+
+def prune(keep_s: float) -> int:
+    cutoff = time.time() - keep_s
+    conn = connect()
+    try:
+        removed = 0
+        for table, column in PRUNE.items():
+            removed += conn.execute(f"DELETE FROM {table} WHERE {column} < ?", (cutoff,)).rowcount
+        removed += conn.execute("DELETE FROM purchase_orders WHERE ts < ? AND run_id != 'seed'", (cutoff,)).rowcount
+        conn.commit()
+        return removed
+    finally:
+        conn.close()
