@@ -114,11 +114,6 @@ def run_health_check(agent: str, source: str = "schedule", stop: threading.Event
             "failed": [r["question"] for r in results if not r["passed"]]}
 
 
-def latest_health() -> dict[str, dict]:
-    rows = db.query("SELECT agent, score, ts FROM health_checks WHERE id IN "
-                    "(SELECT MAX(id) FROM health_checks GROUP BY agent)")
-    return {r["agent"]: r for r in rows}
-
 
 def run_health_forever(stop: threading.Event) -> None:
     from fleet.workload import build_fleet
