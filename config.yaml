@@ -1,6 +1,7 @@
 # All ports, thresholds and intervals live here.
 
 db_path: traces.db
+keep_history_s: 3600            # agent steps, runs and health checks older than this are deleted
 
 dashboard:
   port: 8501
@@ -22,7 +23,6 @@ workload:
 
 llm:
   timeout_s: 60
-  mock_latency_ms: 150         # fake delay per call in MOCK_LLM mode
 
 chaos:
   slow_delay_s: 4              # delay added by the "slow" fault mode
@@ -50,7 +50,7 @@ tools:
   get_purchase_order: procurement
 
 health:
-  interval_s: 30               # golden health checks run this often
+  interval_s: 120              # golden health checks run this often (each one calls the AI model)
   first_run_after_s: 5
   healthy_score: 1.0           # score an agent needs to count as recovered after a fix
 
