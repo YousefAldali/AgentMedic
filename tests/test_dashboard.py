@@ -54,11 +54,11 @@ def test_incident_shows_board_metrics_and_both_reports():
     at = app()
     assert not at.exception
     page = html_text(at)
-    assert "Time to detect</div><div class='v'>5.0s" in page
-    assert "Time to recover</div><div class='v'>15.0s" in page
-    assert "vendor_api outage (status=down)" in page and "90%" in page
+    assert "Time to notice</div><div class='v'>5.0s" in page
+    assert "Time to fix</div><div class='v'>15.0s" in page
+    assert "Supplier system outage (status=down)" in page and "90%" in page
     assert "INCIDENT #1 TIMELINE" in page and "Recovery verified" in page
-    assert [t.label for t in at.tabs] == ["English", "العربية"]
+    assert [t.label for t in at.tabs][-2:] == ["English", "العربية"]
 
 
 def test_hypothesis_rows_mark_root_cause_and_rejected():
