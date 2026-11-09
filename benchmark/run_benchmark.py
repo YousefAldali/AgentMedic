@@ -1,9 +1,8 @@
 # Benchmark: naive retry/restart baseline vs AgentMedic on every scenario.
 #
-#   python -m benchmark.run_benchmark                    # MOCK mode, all scenarios, both remediators
+#   python -m benchmark.run_benchmark                    # all scenarios, both remediators (calls the AI model)
 #   python -m benchmark.run_benchmark S7 S8              # only some scenarios
 #   python -m benchmark.run_benchmark --timeout 150      # seconds each remediator gets per scenario
-#   MOCK_LLM=0 python -m benchmark.run_benchmark         # with the real models (costs money)
 #   python -m benchmark.run_benchmark --only agentmedic  # rerun one side, keep the other side's last results
 #
 # A neutral judge decides recovery for both remediators the same way: every agent passes all
@@ -21,7 +20,7 @@ from benchmark.naive_agent import NaiveRemediator
 from chaos.faults import reset_all
 from chaos.scenarios import SCENARIOS, _identified, _incidents_since, inject, truth
 from common import db, registry
-from common.config import ROOT, get_config, mock_llm
+from common.config import ROOT, get_config
 from doctor.detectors import detect
 from doctor.monitor import run_health_check, snapshot
 
@@ -217,11 +216,11 @@ def write_outputs(rows: list[Row], note: str = "") -> dict:
         w.writeheader()
         w.writerows(asdict(r) for r in rows)
     s = summary(rows)
-    (RESULTS / "benchmark.json").write_text(json.dumps({"mode": "mock" if mock_llm() else "real", "summary": s,
+    (RESULTS / "benchmark.json").write_text(json.dumps({"mode": "real", "summary": s,
                                                         "finished_at": time.strftime("%Y-%m-%d %H:%M"), "note": note,
                                                         "rows": [asdict(r) for r in rows]}, indent=2), encoding="utf-8")
     lines = ["# Benchmark: AgentMedic vs naive retry + restart", "",
-             f"Mode: {'MOCK (scripted model)' if mock_llm() else 'real models'} · scenarios: {len(set(r.scenario for r in rows))}"
+             f"Mode: real models · scenarios: {len(set(r.scenario for r in rows))}"
              + (f"  \n{note}" if note else ""), "",
              "| Remediator | Recovery rate | Mean time to recover | Root causes found | Wrong / unnecessary actions | "
              "Correct escalations (F10) |", "|---|---|---|---|---|---|"]
