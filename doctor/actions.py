@@ -181,12 +181,22 @@ def decide(approval_id: int, approve: bool, by: str = "human") -> None:
                ("approved" if approve else "rejected", by, time.time(), approval_id))
 
 
-def wait_for_decision(approval_id: int, timeout_s: float, poll_s: float = 1.0) -> dict:
+def wait_for_decision(approval_id: int, timeout_s: float, poll_s: float = 1.0,
+                      while_waiting: Callable[[], None] | None = None, every_s: float = 5.0) -> dict:
+    # while_waiting runs every few seconds, so the doctor keeps watching the fleet
+    # while a human decides.
     deadline = time.time() + timeout_s
+    next_check = time.time() + every_s
     while True:
         row = db.query("SELECT * FROM approvals WHERE id = ?", (approval_id,))[0]
         if row["status"] != "pending" or time.time() >= deadline:
             return row
+        if while_waiting and time.time() >= next_check:
+            next_check = time.time() + every_s
+            try:
+                while_waiting()
+            except Exception as e:
+                print(f"[doctor] check while waiting failed: {type(e).__name__}: {e}", flush=True)
         time.sleep(poll_s)
 
 
