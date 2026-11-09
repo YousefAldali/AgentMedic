@@ -345,3 +345,42 @@
   font-size: .76rem; text-transform: uppercase; letter-spacing: .06em; }
 .st-key-en_report td, .st-key-en_report th, .st-key-ar_report td, .st-key-ar_report th { border-color: var(--line) !important; }
 .st-key-en_report code { background: var(--glass-2); color: var(--info); border-radius: 6px; }
+
+/* doctor: test rounds countdown */
+.rounds { margin-top: 16px; background: var(--glass-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; }
+.rounds .rt { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; color: var(--text-2); font-size: .84rem; }
+.rounds .rt b { color: var(--text); font-weight: 600; }
+.rounds .nx { color: var(--muted); font-family: var(--mono); font-size: .78rem; }
+.rounds .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 8px; overflow: hidden; }
+.rounds .bar div { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #2dd4bf, #38bdf8); transition: width 1s linear; }
+
+/* technical log as a feed */
+.log { display: flex; flex-direction: column; }
+.log .ev { display: grid; grid-template-columns: 70px 112px 34px minmax(0, 1fr); align-items: baseline; gap: 10px;
+  padding: 8px 6px; border-bottom: 1px solid var(--line); font-size: .84rem; }
+.log .ev:hover { background: rgba(148, 163, 184, .05); }
+.log .ts { color: var(--muted); font-family: var(--mono); font-size: .78rem; }
+.log .st { display: inline-flex; align-items: center; gap: 5px; justify-self: start; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid; font-size: .72rem; font-weight: 700; letter-spacing: .03em; }
+.log .inc { color: var(--muted); font-family: var(--mono); font-size: .76rem; }
+.log .msg { color: var(--text-2); font-family: var(--mono); font-size: .79rem; line-height: 1.5; word-break: break-word; }
+@media (max-width: 700px) { .log .ev { grid-template-columns: 1fr; gap: 3px; } }
+
+/* keyboard focus is always visible (skill rule: focus-states) */
+.stTabs [data-testid="stTab"]:focus-visible, .stSelectbox [data-baseweb="select"]:focus-within,
+[data-testid="stSidebar"] a:focus-visible { outline: 2px solid var(--brand-2) !important; outline-offset: 2px; border-radius: 10px; }
+
+/* comfortable reading length for sentences (skill rule: line-length) */
+.banner .bd, .empty, .guide .gd, .side-card { max-width: 78ch; }
+.st-key-en_report p, .st-key-en_report li { max-width: 80ch; }
+
+/* phones: the live view is too small to read, the agent cards below show the same thing;
+   number cards sit two per row (skill rule: content-priority) */
+@media (max-width: 700px) {
+  .st-key-office_frame { display: none; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px; }
+  .kpi { padding: 12px 14px 10px; }
+  .kpi .v { font-size: 1.5rem; }
+  .kpi .ic { width: 28px; height: 28px; }
+  .hero img { height: 40px; }
+}
