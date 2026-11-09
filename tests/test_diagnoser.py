@@ -27,7 +27,7 @@ def hyp(cause, conf, target="vendor_api", action="open_circuit_breaker") -> Hypo
                       proposed_fix=[Fix(action=action, target=target)] if target else [])
 
 
-# ---------------------------------------------------------------- rule board (MOCK mode)
+# ---------------------------------------------------------------- rule board
 def test_f1_outage_confirmed_by_health_endpoint_is_root_cause():
     board = diagnose([candidate(status="down", errors=ONLY_5XX)], time.time() - 30)
     causes = root_causes(board)
@@ -111,7 +111,6 @@ def test_guard_reads_health_for_services_not_in_candidates(monkeypatch):
 # ---------------------------------------------------------------- real-mode (LLM) board
 def fake_llm(monkeypatch, replies):
     replies = iter(replies)
-    monkeypatch.setattr(diagnoser, "mock_llm", lambda: False)
     monkeypatch.setattr(llm, "chat", lambda *a, **k: llm.LLMResponse(next(replies), [], 100, 50, "fake"))
 
 
@@ -144,7 +143,6 @@ def test_invalid_llm_replies_fall_back_to_rules(monkeypatch):
 
 
 def test_llm_error_falls_back_to_rules(monkeypatch):
-    monkeypatch.setattr(diagnoser, "mock_llm", lambda: False)
 
     def boom(*a, **k):
         raise llm.LLMError("429 rate limited")
