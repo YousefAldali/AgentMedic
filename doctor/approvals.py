@@ -8,19 +8,28 @@ import sys
 
 from doctor.actions import decide, pending_approvals
 
+USAGE = "usage: python -m doctor.approvals [approve <id> | reject <id>]"
 
-def main(argv: list[str]) -> None:
+
+def main(argv: list[str]) -> int:
     if not argv:
         rows = pending_approvals()
         if not rows:
             print("No pending approvals.")
         for r in rows:
             print(f"#{r['id']}  {r['action']}({r['target']})  incident #{r['incident_id']}  - {r['reason']}")
-        return
+        return 0
+    if len(argv) != 2 or argv[0] not in ("approve", "reject") or not argv[1].isdigit():
+        print(USAGE)
+        return 2
     cmd, approval_id = argv[0], int(argv[1])
+    if approval_id not in {r["id"] for r in pending_approvals()}:
+        print(f"#{approval_id} is not waiting for a decision.")
+        return 1
     decide(approval_id, approve=(cmd == "approve"), by="human (terminal)")
     print(f"#{approval_id} {'approved' if cmd == 'approve' else 'rejected'}")
+    return 0
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))
