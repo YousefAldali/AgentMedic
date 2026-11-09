@@ -92,7 +92,7 @@ def test_missing_po_is_a_tool_error():
     ("تحقق من الفاتورة INV-4 من eXtra Enterprise بمبلغ 39500 ريال مقابل أمر الشراء PO-GOLD01.", "approved"),
     ("Validate invoice INV-5 from eXtra Enterprise for 39500 SAR against PO-MISSING.", "error"),
 ])
-def test_finance_agent_decisions_in_mock_mode(task, decision):
+def test_finance_agent_decisions_with_scripted_model(task, decision):
     seed_golden_po()
     result = FinanceAgent().run(task)
     assert result["status"] == "ok"
