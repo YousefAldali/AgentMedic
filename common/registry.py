@@ -61,11 +61,6 @@ def last_known_good(agent: str) -> int | None:
     return rows[0]["version"] if rows else None
 
 
-def list_versions(agent: str) -> list[dict]:
-    return db.query(
-        "SELECT version, is_active, known_good, created_at FROM prompts WHERE agent = ? "
-        "ORDER BY version", (agent,))
-
 
 def dependencies() -> dict[str, list[str]]:
     # {agent: [shared dependencies]}
