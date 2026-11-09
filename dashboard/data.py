@@ -6,7 +6,7 @@ import time
 import httpx
 
 from common import db, registry
-from common.config import get_config, mock_llm, service_url
+from common.config import get_config, service_url
 from doctor.correlator import read_state
 from doctor.detectors import detect
 from doctor.monitor import snapshot
@@ -128,8 +128,12 @@ def hypothesis_rows(inc: dict) -> list[dict]:
     return rows
 
 
+ACTIVE_WORDS = {"down": "down", "slow": "slow", "error_500": "returning errors", "corrupt": "returning wrong data",
+                "flaky": "failing now and then", "unreachable": "not reachable"}
+
+
 def active_faults() -> list[str]:
-    # What chaos is currently injected (for the demo operator only; the doctor never reads this).
+    # Which failures are switched on right now (shown in the sidebar only; the doctor never reads this).
     faults = []
     for name in get_config()["services"]:
         try:
@@ -137,21 +141,15 @@ def active_faults() -> list[str]:
         except (httpx.HTTPError, KeyError, ValueError):
             mode = "unreachable"
         if mode != "none":
-            faults.append(f"{name}: {mode}")
+            faults.append(f"{name}: {ACTIVE_WORDS.get(mode, mode)}")
     for r in db.query("SELECT key, value FROM control WHERE key LIKE 'chaos.%' OR key = 'llm.chaos'"):
         faults.append(f"{r['key']} = {r['value']}")
     for agent in registry.dependencies():
         info = registry.active_info(agent)
         if info["version"] is not None and info["version"] != registry.last_known_good(agent):
-            faults.append(f"{agent}: prompt v{info['version']} (not known-good)")
+            faults.append(f"{agent}: running an untested instructions update (v{info['version']})")
     return faults
 
-
-def mode_label() -> str:
-    from common.config import env
-    if mock_llm():
-        return "MOCK mode (scripted AI, free)"
-    return f"Real AI · fleet {env('FLEET_MODEL', '-')} · doctor {env('DOCTOR_MODEL', '-')}"
 
 
 # ---------------------------------------------------------- live office view
@@ -166,6 +164,14 @@ def _doctor_target(message: str, candidates: list[str]) -> str | None:
 
 def cooldown_s() -> float:
     return get_config()["doctor"]["escalation_cooldown_s"]
+
+
+def _short_symptom(described: str) -> str:
+    from dashboard.names import SYMPTOMS_SHORT, symptom_type
+    if not described:
+        return ""
+    kind = symptom_type(described)
+    return SYMPTOMS_SHORT.get(kind, kind.replace("_", " "))
 
 
 def office_state() -> dict:
@@ -200,7 +206,7 @@ def office_state() -> dict:
     return {
         "now": now,
         "agents": [{"name": a, "status": cards[a]["status"], "health": cards[a]["health"],
-                    "symptom": (cards[a]["symptoms"] or [""])[0], "new_requests": started.get(a, 0),
+                    "symptom": _short_symptom((cards[a]["symptoms"] or [""])[0]), "new_requests": started.get(a, 0),
                     "deps": agents[a]} for a in agents],
         "services": [{"name": s["name"], "status": s["status"], "breaker": s["breaker"], "fallback": s["fallback"],
                       "integrity": s["integrity"]} for s in services()],
@@ -268,3 +274,39 @@ def timeline(incident_id: int) -> list[dict]:
     elif inc["status"] == "escalated" and inc["resolved_at"]:
         points.append({"label": "Escalated to a human", "t": inc["resolved_at"] - start, "kind": "human"})
     return [dict(p, t=round(max(0.0, p["t"]), 1)) for p in points]
+
+
+# ---------------------------------------------------------- trends for the small live charts
+def trends(minutes: int = 15, bucket_s: int = 30) -> dict:
+    # Per-bucket numbers for the last few minutes: finished tasks, failed tasks, and the
+    # average AI response time, for the whole fleet and for each agent.
+    now = time.time()
+    start = now - minutes * 60
+    n = int(minutes * 60 / bucket_s)
+
+    def idx(ts: float) -> int:
+        return min(n - 1, max(0, int((ts - start) / bucket_s)))
+
+    tasks, failed = [0] * n, [0] * n
+    for r in db.query("SELECT status, ended_at FROM runs WHERE ended_at >= ? AND status != 'running'", (start,)):
+        i = idx(r["ended_at"])
+        tasks[i] += 1
+        failed[i] += r["status"] != "ok"
+    lat_sum, lat_n = [0.0] * n, [0] * n
+    per_agent: dict[str, list[list[float]]] = {}
+    for s in db.query("SELECT agent, latency_ms, ts FROM spans WHERE kind = 'llm' AND ts >= ?", (start,)):
+        i = idx(s["ts"])
+        lat_sum[i] += s["latency_ms"] or 0
+        lat_n[i] += 1
+        a = per_agent.setdefault(s["agent"], [[0.0] * n, [0] * n])
+        a[0][i] += s["latency_ms"] or 0
+        a[1][i] += 1
+
+    def avg(total: list[float], count: list[int]) -> list[float | None]:
+        return [round(t / c) if c else None for t, c in zip(total, count)]
+
+    # Charts start where the data starts, so a fresh start does not squeeze everything to the right edge.
+    first = next((i for i in range(n) if tasks[i] or lat_n[i]), n - 1)
+    first = min(first, n - 2)
+    return {"tasks": tasks[first:], "failed": failed[first:], "latency": avg(lat_sum, lat_n)[first:],
+            "agent_latency": {a: avg(v[0], v[1])[first:] for a, v in per_agent.items()}, "bucket_s": bucket_s}
