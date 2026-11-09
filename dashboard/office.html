@@ -10,7 +10,7 @@
 </style>
 </head>
 <body>
-<canvas id="office" width="1100" height="540"></canvas>
+<canvas id="office" width="1100" height="540" role="img" aria-label="Live view: the four AI agents, the systems they use, and the doctor"></canvas>
 <script>
 // Live office v2. Every agent sits at a glass desk, the shared systems sit below, data
 // flows through pipes from each system to the agents that use it, and the doctor walks
@@ -28,7 +28,7 @@ cv.width = W * DPR; cv.height = H * DPR;
 ctx.scale(DPR, DPR);
 // The scene is usually shown smaller than its 1100 px design width, so text and icons
 // are drawn larger to stay readable (also on a projector).
-const FONT = 1.3, ICON = 1.15;
+const FONT = 1.45, ICON = 1.2;
 
 const DESKS = { hr: [140, 150], procurement: [370, 150], finance: [600, 150], support: [830, 150] };
 const SYSTEMS = { hr_db: [140, 440], vendor_api: [370, 440], knowledge_base: [600, 440], llm: [830, 440] };
@@ -292,7 +292,7 @@ function drawSystems(t) {
     ctx.fillStyle = "rgba(15,23,42,0.85)"; ctx.strokeStyle = col; ctx.lineWidth = 1.6;
     rr(x - 92, y - 40, 184, 80, 14); ctx.fill(); ctx.stroke(); noGlow();
     sysIcon(SYSTEM[s.name][0], x - 60, y, col);
-    text(SYSTEM[s.name][1], x + 20, y - 16, 12, C.text, 700);
+    text(SYSTEM[s.name][1], x + 22, y - 16, 11, C.text, 700);
     let sub = "online";
     const WORD = { down: "down", erroring: "errors", degraded: "slow", unknown: "unreachable" };
     if (failing(s)) sub = s.integrity !== "ok" ? "wrong data" : (WORD[s.status] || s.status);
@@ -392,17 +392,21 @@ function drawEffects(dt) {
   }
 }
 
+// People who turn motion off in their system settings get a still picture: no pulsing,
+// bobbing or flowing data, but every colour and status still updates.
+const CALM = window.matchMedia("(prefers-reduced-motion: reduce)");
 let prev = performance.now();
 function frame(now) {
   const dt = Math.min(64, now - prev); prev = now;
-  drawFloor(now);
+  const t = CALM.matches ? 0 : now;
+  drawFloor(t);
   drawDoctorsOffice();
-  drawPipes(now);
-  drawSystems(now);
-  drawDesks(now);
-  drawEnvelopes(dt);
-  drawEffects(dt);
-  drawDoctor(now, dt);
+  drawPipes(t);
+  drawSystems(t);
+  drawDesks(t);
+  drawEnvelopes(CALM.matches ? 0 : dt);
+  drawEffects(CALM.matches ? 0 : dt);
+  drawDoctor(t, CALM.matches ? 1000 : dt);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
