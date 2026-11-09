@@ -19,7 +19,6 @@ from dataclasses import dataclass
 
 from chaos.faults import FAULTS, fresh_start_for_doctor, reset_all
 from common import db, registry
-from common.config import get_config
 
 SCENARIOS = {
     "F1": ["F1"], "F2": ["F2"], "F3": ["F3"], "F4": ["F4"], "F5": ["F5"], "F6": ["F6"], "F10": ["F10"],
