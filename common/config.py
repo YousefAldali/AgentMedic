@@ -24,10 +24,6 @@ def env(name: str, default: str | None = None) -> str | None:
     return value if value not in (None, "") else default
 
 
-def mock_llm() -> bool:
-    return env("MOCK_LLM", "1") == "1"
-
-
 def service_url(name: str) -> str:
     svc = get_config()["services"][name]
     return f"http://{svc['host']}:{svc['port']}"
