@@ -75,8 +75,8 @@ def check(test_api: bool) -> int:
         problems += status == "FAIL"
         print(f"[{status:<4}] {text}")
 
-    if sys.version_info < (3, 10):
-        line("FAIL", f"Python {sys.version.split()[0]} is too old: AgentMedic needs Python 3.10 or newer")
+    if sys.version_info < (3, 11):
+        line("FAIL", f"Python {sys.version.split()[0]} is too old: AgentMedic needs Python 3.11 or newer")
     missing = []
     for pkg in ("fastapi", "uvicorn", "httpx", "openai", "pydantic", "yaml", "streamlit", "matplotlib"):
         try:
