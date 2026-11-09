@@ -191,7 +191,8 @@ def office_state() -> dict:
         doctor.update(working=True, incident_id=open_inc[0]["id"], target=sick[0] if sick else None)
     if last and (open_inc or now - last["ts"] < 8):
         names = list(agents) + list(SERVICE_NAMES)
-        doctor.update(stage=last["stage"], message=last["message"][:160],
+        from dashboard.names import ticker
+        doctor.update(stage=last["stage"], message=ticker(last["message"])[:200],
                       target=_doctor_target(last["message"], names) or doctor["target"])
         if last["stage"] in ("VERIFY", "REPORT", "RESTORE") and not open_inc:
             doctor["target"] = None
@@ -201,7 +202,7 @@ def office_state() -> dict:
         sick = sorted({s["agent"] for s in json.loads(inc[0]["symptoms"] or "[]")}) if inc else []
         left = int(cooldown_s() - (now - last["ts"]))
         doctor.update(stage="ESCALATE", target=sick[0] if sick else None, working=False,
-                      message=f"Handed to a human. Not reopening this problem for {left} s.")
+                      message=f"Handed to a person. Not reopening this problem for {left} s.")
     pending = db.query("SELECT action, target FROM approvals WHERE status = 'pending' ORDER BY id LIMIT 1")
     return {
         "now": now,
@@ -310,3 +311,16 @@ def trends(minutes: int = 15, bucket_s: int = 30) -> dict:
     first = min(first, n - 2)
     return {"tasks": tasks[first:], "failed": failed[first:], "latency": avg(lat_sum, lat_n)[first:],
             "agent_latency": {a: avg(v[0], v[1])[first:] for a, v in per_agent.items()}, "bucket_s": bucket_s}
+
+
+def health_rounds() -> dict:
+    # When the doctor last tested the agents with its known-answer questions, how they did,
+    # and when the next round is due.
+    rows = db.query("SELECT agent, score, ts FROM health_checks WHERE details NOT LIKE '%\"source\": \"judge\"%' "
+                    "AND id IN (SELECT MAX(id) FROM health_checks GROUP BY agent)")
+    if not rows:
+        return {"last": None, "next_in": None, "passed": 0, "total": 0}
+    last = max(r["ts"] for r in rows)
+    every = get_config()["health"]["interval_s"]
+    return {"last": last, "next_in": max(0, int(min(r["ts"] for r in rows) + every - time.time())),
+            "passed": sum(r["score"] >= 1.0 for r in rows), "total": len(rows)}
