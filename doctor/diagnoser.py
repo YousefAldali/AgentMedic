@@ -1,6 +1,6 @@
 # DIAGNOSE: builds the hypothesis board.
-# Real mode: the doctor LLM returns strict JSON, validated with pydantic (one retry).
-# MOCK_LLM=1, or if the LLM fails twice: a deterministic rule-based board.
+# The doctor LLM returns strict JSON, validated with pydantic (one retry).
+# If the LLM fails twice: a deterministic rule-based board.
 # Either way the board keeps competing hypotheses with evidence for and against.
 import json
 import time
@@ -8,7 +8,7 @@ import time
 from pydantic import BaseModel, Field, ValidationError
 
 from common import db, llm, registry
-from common.config import get_config, mock_llm
+from common.config import get_config
 from doctor.actions import REGISTRY
 from doctor.correlator import Candidate, read_state
 
@@ -345,8 +345,6 @@ def diagnose(candidates: list[Candidate], since: float) -> Board:
     agents = sorted({a for c in candidates for a in c.agents}
                     | {c.dependency for c in candidates if c.kind == "cascade"})
     ctx = agent_context(agents, since)
-    if mock_llm():
-        return apply_guards(rule_board(candidates, ctx), candidates)
     try:
         board = llm_board(candidates, ctx)
     except llm.LLMError:
