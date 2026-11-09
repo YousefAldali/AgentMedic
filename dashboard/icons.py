@@ -59,14 +59,15 @@ def svg(name: str, size: int = 16, color: str | None = None, stroke: float = 2) 
     style = f"color:{color};" if color else ""
     return (f"<svg xmlns='http://www.w3.org/2000/svg' width='{size}' height='{size}' viewBox='0 0 24 24' "
             f"fill='none' stroke='currentColor' stroke-width='{stroke}' stroke-linecap='round' "
-            f"stroke-linejoin='round' style='vertical-align:-0.18em;{style}'>{PATHS.get(name, PATHS['dot'])}</svg>")
+            f"stroke-linejoin='round' aria-hidden='true' focusable='false' style='vertical-align:-0.18em;{style}'>"
+            f"{PATHS.get(name, PATHS['dot'])}</svg>")
 
 
 def stage(name: str, size: int = 15, color: str | None = None) -> str:
     return svg(STAGE.get(name, "dot"), size, color)
 
 
-def sparkline(values: list, color: str, width: int = 160, height: int = 40, fill: bool = True) -> str:
+def sparkline(values: list, color: str, width: int = 160, height: int = 40, fill: bool = True, label: str = "") -> str:
     # A tiny line chart as inline SVG. Missing values (None) are skipped.
     pts = [(i, v) for i, v in enumerate(values) if v is not None]
     if len(pts) < 2:
@@ -74,7 +75,9 @@ def sparkline(values: list, color: str, width: int = 160, height: int = 40, fill
                 f"<line x1='0' y1='{height - 2}' x2='{width}' y2='{height - 2}' stroke='{color}' stroke-opacity='.35' "
                 f"stroke-dasharray='3 4'/></svg>")
     lo, hi = min(v for _, v in pts), max(v for _, v in pts)
-    span = (hi - lo) or 1
+    # Small wobbles stay small: the chart never zooms in closer than 30% of the highest value.
+    span = max(hi - lo, abs(hi) * 0.3, 1)
+    lo = hi - span if hi - lo < span else lo
     n = max(len(values) - 1, 1)
     xy = [(i * width / n, height - 4 - (v - lo) / span * (height - 10)) for i, v in pts]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in xy)
@@ -83,14 +86,17 @@ def sparkline(values: list, color: str, width: int = 160, height: int = 40, fill
     grad = (f"<defs><linearGradient id='{gid}' x1='0' y1='0' x2='0' y2='1'><stop offset='0' stop-color='{color}' "
             f"stop-opacity='.35'/><stop offset='1' stop-color='{color}' stop-opacity='0'/></linearGradient></defs>")
     last = xy[-1]
+    seen = [v for v in values if v is not None]
+    summary = f"{label}: from {seen[0]:g} to {seen[-1]:g}, highest {max(seen):g}" if label else ""
+    aria = f"role='img' aria-label='{summary}'" if summary else "aria-hidden='true'"
     return (f"<svg width='100%' height='{height}' viewBox='0 0 {width} {height}' preserveAspectRatio='none' "
-            f"aria-hidden='true'>{grad}" + (f"<path d='{area}' fill='url(#{gid})'/>" if fill else "")
+            f"{aria}>{grad}" + (f"<path d='{area}' fill='url(#{gid})'/>" if fill else "")
             + f"<polyline points='{line}' fill='none' stroke='{color}' stroke-width='2' stroke-linejoin='round' "
             f"stroke-linecap='round' vector-effect='non-scaling-stroke'/>"
             f"<circle cx='{last[0]:.1f}' cy='{last[1]:.1f}' r='3' fill='{color}'/></svg>")
 
 
-def bars(values: list, color: str, width: int = 160, height: int = 40) -> str:
+def bars(values: list, color: str, width: int = 160, height: int = 40, label: str = "") -> str:
     # Small bar chart, one bar per value (oldest first), the newest one brightest.
     vals = [v for v in values if v is not None][-12:]
     if not vals:
@@ -105,5 +111,7 @@ def bars(values: list, color: str, width: int = 160, height: int = 40) -> str:
         op = 1 if i == n - 1 else .45
         out.append(f"<rect x='{x:.1f}' y='{height - h:.1f}' width='{w:.1f}' height='{h:.1f}' rx='3' "
                    f"fill='{color}' fill-opacity='{op}'/>")
+    aria = (f"role='img' aria-label='{label}: last {n} incidents, " + ", ".join(f"{v:g}" for v in vals) + "'"
+            if label else "aria-hidden='true'")
     return (f"<svg width='100%' height='{height}' viewBox='0 0 {width} {height}' preserveAspectRatio='xMaxYMax meet' "
-            f"aria-hidden='true'>{''.join(out)}</svg>")
+            f"{aria}>{''.join(out)}</svg>")
