@@ -57,6 +57,9 @@ SYSTEM_ICON = {"hr_db": "database", "vendor_api": "store", "knowledge_base": "bo
 AGENT_ICON = {"hr": "users", "procurement": "cart", "finance": "receipt", "support": "headset"}
 AGENT_ROLE = {"hr": "HR questions", "procurement": "Quotes & orders", "finance": "Checks invoices",
               "support": "Customer help"}
+STAGE_COLOR = {"MONITOR": "#7dd3fc", "DETECT": "#f87171", "CORRELATE": "#38bdf8", "DIAGNOSE": "#a78bfa",
+               "TREAT": "#f472b6", "VERIFY": "#4ade80", "REPORT": "#2dd4bf", "RESTORE": "#4ade80",
+               "ESCALATE": "#fbbf24"}
 TL_COLOR = {"bad": "#ef4444", "info": "#38bdf8", "fix": "#a78bfa", "human": "#f59e0b", "good": "#22c55e"}
 STEP_NAMES = {"DETECT": "Spot the problem", "DIAGNOSE": "Find the cause", "TREAT": "Fix it",
               "VERIFY": "Check the fix worked", "REPORT": "Write the report"}
@@ -107,7 +110,7 @@ def pill(status: str) -> str:
 
 def section(title: str, hint: str = "", icon: str = "", first: bool = False) -> str:
     ico = f"<span class='ic'>{svg(icon, 16)}</span>" if icon else ""
-    return (f"<div class='sec{' first' if first else ''}'>{ico}<span class='t'>{esc(title)}</span>"
+    return (f"<div class='sec{' first' if first else ''}'>{ico}<span class='t' role='heading' aria-level='2'>{esc(title)}</span>"
             + (f"<span class='d'>{esc(hint)}</span>" if hint else "") + "</div>")
 
 
@@ -153,7 +156,7 @@ def model_chip() -> str:
 
 
 logo_html = f"<img src='{data_url(ICON)}' alt=''/>" if ICON else svg("activity", 44, "#2dd4bf")
-st.markdown(f"<div class='hero'>{logo_html}<div><div class='title'>AgentMedic</div>"
+st.markdown(f"<div class='hero'>{logo_html}<div><div class='title' role='heading' aria-level='1'>AgentMedic</div>"
             f"<div class='sub'>Watches your AI agents, finds what broke, and fixes it safely.</div></div>"
             f"<div class='right'><span class='live'><span class='d'></span>LIVE</span>{model_chip()}</div></div>",
             unsafe_allow_html=True)
@@ -163,7 +166,7 @@ st.markdown(f"<div class='hero'>{logo_html}<div><div class='title'>AgentMedic</d
 def banner(kind: str, icon: str, title: str, text: str, stat: tuple[str, str] | None = None) -> None:
     right = (f"<div class='stat'><div class='n'>{esc(stat[0])}</div><div class='l'>{esc(stat[1])}</div></div>"
              if stat else "")
-    st.markdown(f"<div class='banner {kind}' role='status' aria-live='polite'><div class='orb' aria-hidden='true'>{svg(icon, 26)}</div><div><div class='bt'>{title}</div>"
+    st.markdown(f"<div class='banner {kind}' role='status' aria-live='polite'><div class='orb' aria-hidden='true'>{svg(icon, 26)}</div><div><div class='bt' role='heading' aria-level='2'>{title}</div>"
                 f"<div class='bd'>{text}</div></div>{right}</div>", unsafe_allow_html=True)
 
 
@@ -239,15 +242,36 @@ with office_col:
         st.iframe(office.replace("__API__", feed).replace("__LOGO__", data_url(LOGO)), height="content")
 
 
+def ago(seconds: float) -> str:
+    seconds = int(seconds)
+    return f"{seconds}s" if seconds < 60 else f"{seconds // 60}m {seconds % 60:02d}s"
+
+
+def rounds_box() -> str:
+    # When the doctor last tested every agent, how they did, and a countdown to the next round.
+    r = data.health_rounds()
+    if not r["last"]:
+        return ("<div class='rounds'><div class='rt'>First test round starting…</div>"
+                "<div class='bar'><div style='width:8%'></div></div></div>")
+    every = get_config()["health"]["interval_s"]
+    done = 100 * (1 - (r["next_in"] or 0) / every)
+    ok = r["passed"] == r["total"]
+    return (f"<div class='rounds'><div class='rt'><span>{svg('check' if ok else 'alert', 14, '#4ade80' if ok else '#fbbf24')}"
+            f" Last test round <b>{ago(time.time() - r['last'])} ago</b> · {r['passed']}/{r['total']} agents passed</span>"
+            f"<span class='nx'>next in {ago(r['next_in'] or 0)}</span></div>"
+            f"<div class='bar'><div style='width:{done:.0f}%'></div></div></div>")
+
+
 @st.fragment(run_every="1s")
 def doctor_panel() -> None:
     incs = data.incidents(1)
     head = ("<div class='doc-head'><div class='av'>" + svg("stethoscope", 20) + "</div><div><div class='nm'>"
             "The doctor</div><div class='rl'>{sub}</div></div>{pill}</div>")
-    if not incs:
+    quiet = not incs or (incs[0]["status"] != "open" and time.time() - (incs[0]["resolved_at"] or 0) > 600)
+    if quiet:
         st.markdown(
             "<div class='card'>" + head.format(sub="Making rounds", pill="<span class='pill green'>All quiet</span>")
-            + "<div class='watch'>"
+            + rounds_box() + "<div class='watch'>"
             f"<div class='row'><span class='i'>{svg('check', 15, '#4ade80')}</span>Tests every agent with questions "
             "it knows the answers to</div>"
             f"<div class='row'><span class='i'>{svg('search', 15, '#7dd3fc')}</span>Watches for errors, slowness, "
@@ -310,9 +334,9 @@ def kpi_strip(cards: list[dict], incs: list[dict], trend: dict) -> None:
     out = []
     for n, (label, value, hint, icon, color, series) in enumerate(kpis):
         if n >= 3:
-            chart = f"<div class='spark'>{bars(series, color)}</div>" if series else ""
+            chart = f"<div class='spark'>{bars(series, color, label=label + ' in seconds')}</div>" if series else ""
         else:
-            chart = f"<div class='spark'>{sparkline(series, color)}</div>" if series else ""
+            chart = f"<div class='spark'>{sparkline(series, color, label=label + ' over the last 15 minutes')}</div>" if series else ""
         out.append(f"<div class='card kpi'><div class='top'><div class='l'>{esc(label)}</div><div class='v'>{esc(value)}"
                    f"</div><div class='ic' style='background:{color}1f;color:{color}'>{svg(icon, 16)}</div></div>"
                    f"<div class='hint'>{esc(hint)}</div>{chart}</div>")
@@ -342,7 +366,7 @@ def agent_cards(cards: list[dict], trend: dict) -> None:
             f"<div class='s'><div class='k'>Errors</div><div class='x'>{c['error_rate']:.0%}</div></div>"
             f"<div class='s'><div class='k'>Slowest</div><div class='x'>{c['p95_ms'] / 1000:.1f}s</div></div></div>"
             + (f"<div class='note'>{notes[0]}</div>" if notes else "")
-            + f"<div class='spark'>{sparkline(series, color, height=36)}</div></div>")
+            + f"<div class='spark'>{sparkline(series, color, height=36, label=names.AGENTS.get(c['agent'], c['agent']) + ' response time in ms')}</div></div>")
     st.markdown("<div class='agents'>" + "".join(out) + "</div>", unsafe_allow_html=True)
 
 
@@ -440,15 +464,20 @@ def activity_tab() -> None:
     st.markdown("<p class='empty'>Every step the doctor takes, newest first, in the short technical form it "
                 "records. For a plain summary, see the Reports tab.</p>", unsafe_allow_html=True)
     events = data.doctor_feed(60)
-    with st.container(height=440):
+    with st.container(height=620):
         if not events:
             st.markdown("<p class='empty'>Nothing yet. The doctor writes a line here for every step it takes.</p>",
                         unsafe_allow_html=True)
+        rows = []
         for e in events:
-            inc_id = f"#{e['incident_id']} " if e["incident_id"] else ""
-            st.markdown(f"<p class='feed'><span class='ts'>{t(e['ts'])}</span> {stage_icon(e['stage'], 13, '#7dd3fc')} "
-                        f"<span class='s'>{e['stage']}</span> {inc_id}{esc(e['message'])}</p>",
-                        unsafe_allow_html=True)
+            color = STAGE_COLOR.get(e["stage"], "#94a3b8")
+            inc_id = f"<span class='inc'>#{e['incident_id']}</span>" if e["incident_id"] else ""
+            rows.append(f"<div class='ev'><span class='ts'>{t(e['ts'])}</span>"
+                        f"<span class='st' style='color:{color};background:{color}1a;border-color:{color}55'>"
+                        f"{stage_icon(e['stage'], 12)} {esc(e['stage'].title())}</span>{inc_id}"
+                        f"<span class='msg'>{esc(e['message'])}</span></div>")
+        if rows:
+            st.markdown("<div class='log'>" + "".join(rows) + "</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------- Reports tab
