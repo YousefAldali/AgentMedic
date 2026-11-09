@@ -1,7 +1,7 @@
 # The Arabic incident report, written fully in Arabic (not the English report with
 # Arabic headings). Names, symptoms, causes, evidence, actions and results are translated
-# from the recorded facts. In real-model mode, text the doctor wrote in its own words is
-# translated by the model; in MOCK mode the rule-based wording is translated here.
+# from the recorded facts. Text the doctor wrote in its own words is translated by the
+# model; the rule-based wording (used when the model fails) is translated here.
 import re
 from datetime import datetime
 
@@ -40,6 +40,23 @@ STATUS_STILL = {"down": "متوقفًا", "erroring": "يعيد أخطاء", "de
 
 def name(x: str) -> str:
     return AGENT.get(x) or SYSTEM.get(x) or x
+
+
+# Follow-up lines for the "current state" part of the Arabic report.
+def follow_up_breaker(dep: str, status: str | None, cached: bool) -> str:
+    return (f"ما زال {name(dep)} {STATUS_STILL.get(status, 'خارج الخدمة')}، لذلك يبقى قاطع الدائرة مفتوحًا"
+            + ("، ويحصل الوكلاء على البيانات الاحتياطية المخزنة" if cached else "")
+            + f". سيُغلقه AgentMedic تلقائيًا عند تعافي {name(dep)}.")
+
+
+def follow_up_backup_model() -> str:
+    return ("ما زالت استدعاءات الوكلاء تذهب إلى النموذج الاحتياطي. يُعاد التحويل إلى النموذج "
+            "الأساسي عند عودة زمن استجابته إلى طبيعته.")
+
+
+def follow_up_step_cap(agent: str, cap) -> str:
+    return (f"حُدّد تشغيل {name(agent)} بسقف {cap} خطوات لاحتواء الحلقة. ينبغي أن يعالج "
+            "أحد أعضاء الفريق سبب تكرار الأداة، ثم يُرفع هذا السقف.")
 
 
 def _t(ts: float | None) -> str:
