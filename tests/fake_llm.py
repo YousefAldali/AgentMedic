@@ -1,4 +1,4 @@
-# Scripted, deterministic LLM replies for MOCK_LLM=1.
+# Scripted, deterministic LLM replies used by the tests instead of a paid model.
 #
 # Each agent has a small "planner" that looks at the task and the tool results
 # so far, and returns either tool calls or a final answer, the same way a real
@@ -10,7 +10,7 @@ import uuid
 from common.llm import ToolCall
 
 ARABIC = re.compile(r"[؀-ۿ]")
-MAX_TOOL_RETRIES = 3  # how often a mock agent retries a failing tool before giving up
+MAX_TOOL_RETRIES = 3  # how often a scripted agent retries a failing tool before giving up
 
 # Arabic and English words -> catalog item keys used by the vendor API
 ITEM_WORDS = {
@@ -168,11 +168,11 @@ def _finance(task: str, results: list[dict], ar: bool, system: str = ""):
 PLANNERS = {"hr": _hr, "procurement": _procurement, "finance": _finance, "support": _support}
 
 
-def mock_reply(agent: str, messages: list[dict], tools: list[dict]):
+def fake_reply(agent: str, messages: list[dict], tools: list[dict]):
     # Return (content, tool_calls) for one scripted model turn.
     task = _task(messages)
     planner = PLANNERS.get(agent)
     if planner is None:
-        return f"[mock] No script for agent '{agent}'.", []
+        return f"No script for agent '{agent}'.", []
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     return planner(task, _tool_results(messages), bool(ARABIC.search(task)), system)
