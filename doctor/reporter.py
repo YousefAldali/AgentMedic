@@ -1,7 +1,7 @@
 # REPORT: incident report in English and Arabic (markdown).
 # The facts (timeline, symptoms, hypotheses, actions, verification) always come from
-# recorded data. In real mode the doctor LLM writes the summary and prevention text;
-# in MOCK mode, or if that fails, fixed templates are used.
+# recorded data. The doctor LLM writes the summary and prevention text; if that fails,
+# fixed templates are used.
 #
 #   python -m doctor.reporter          # print the latest report (English)
 #   python -m doctor.reporter --ar     # print it in Arabic
@@ -10,7 +10,6 @@ import sys
 from datetime import datetime
 
 from common import db, llm
-from common.config import mock_llm
 from doctor import report_ar
 
 ACTION_AR = {
@@ -209,9 +208,8 @@ def _translate_free_text(f: dict) -> dict:
 
 
 def write_reports(f: dict) -> tuple[str, str]:
-    text = None if mock_llm() else _llm_text(f)
-    text = text or _template_text(f)
-    translated = {} if mock_llm() else _translate_free_text(f)
+    text = _llm_text(f) or _template_text(f)
+    translated = _translate_free_text(f)
     return _render(f, text, ar=False), report_ar.render(f, text, translated)
 
 
