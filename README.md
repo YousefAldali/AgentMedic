@@ -23,14 +23,15 @@ Built for the HUMAIN Future AI Builders Hackathon (Challenge 1: agentic recovery
 3. **Verify and report.** It asks the known questions again until everything passes several times in a row, then
    writes an incident report in English and Arabic.
 
-## Demo
+## Screenshots
 
 Two failures at once: the supplier system goes down and a bad update reaches the HR agent. The doctor finds both
-causes and waits for a person to approve the risky fix:
+causes, fixes what is safe on its own, and asks a person before the risky fix:
 
 ![During the incident](docs/dashboard.png)
 
-After approval: the fixes are verified and the report is written. Procurement keeps working on backup prices until the supplier system is back:
+After approval: the fixes are checked and the report is written. Purchasing keeps working on saved backup prices
+until the supplier system is back:
 
 ![After recovery](docs/dashboard_recovered.png)
 
@@ -51,24 +52,58 @@ Tested on 11 failure scenarios, including 2 and 3 failures at once, against clas
 | Recovered | 100% | 0% |
 | Root causes found | 100% | 0% |
 | Wrong actions | 0 | 102 |
-| Average time to recover | 35 s | never |
+| Average time to recover | 34.5 s | never |
 
-Details: [benchmark/results/benchmark.md](benchmark/results/benchmark.md)
+These runs used scripted AI replies, so every run behaves the same and the comparison is fair. Details:
+[benchmark/results/benchmark.md](benchmark/results/benchmark.md)
 
 ## Quick start
 
+Needs Python 3.10 or newer and an AI model that supports tool calling. Use whichever provider you have.
+
 ```bash
-cd fleet-doctor
+git clone https://github.com/YousefAldali/AgentMedic.git
+cd AgentMedic
 uv venv .venv
 uv pip install -p .venv -r requirements.txt
-cp .env.example .env              # works offline by default (MOCK_LLM=1)
+cp .env.example .env              # then pick your AI provider and model (see below)
+.venv/bin/python run.py --check --api   # checks the setup and the AI model
 .venv/bin/python run.py --reset   # starts the agents, the doctor and the dashboard
 ```
 
-Open http://localhost:8501 and click **Run demo: S7** in the sidebar. To use a real model, set `MOCK_LLM=0` and
-fill in the model settings in `.env` (any OpenAI-compatible endpoint works).
+Open http://localhost:8501, pick a failure under **Test a failure** in the sidebar and click **Start this failure**.
+AgentMedic calls your AI model all the time while it runs, so stop it (Ctrl+C) when you are done.
 
-Run the tests with `.venv/bin/python -m pytest -q`.
+### Choosing an AI provider
+
+Set `LLM_PROVIDER` in `.env` and add your key and model name:
+
+| Provider | `LLM_PROVIDER` | Key needed |
+|---|---|---|
+| OpenAI | `openai` | yes |
+| Google Gemini | `gemini` | yes |
+| Groq | `groq` | yes |
+| Mistral | `mistral` | yes |
+| OpenRouter (many models behind one key) | `openrouter` | yes |
+| DeepSeek | `deepseek` | yes |
+| Together AI | `together` | yes |
+| xAI | `xai` | yes |
+| Azure OpenAI (also set `LLM_BASE_URL` to your endpoint) | `azure` | yes |
+| Ollama, on your own computer | `ollama` | no, free |
+| LM Studio, on your own computer | `lmstudio` | no, free |
+| Anything else that speaks the OpenAI API | leave empty, set `LLM_BASE_URL` | depends |
+
+For example, to try it for free with [Ollama](https://ollama.com):
+
+```bash
+LLM_PROVIDER=ollama
+FLEET_MODEL=llama3.1
+```
+
+`DOCTOR_MODEL` (the model the doctor thinks with) and `BACKUP_MODEL` (used when the main model is slow) are
+optional and fall back to `FLEET_MODEL`.
+
+Run the tests with `.venv/bin/python -m pytest -q` (no API key needed: the tests use scripted AI replies).
 
 ## Project structure
 
@@ -77,9 +112,9 @@ fleet/       the AI agents (HR, procurement, finance, support) and their health 
 doctor/      AgentMedic: detect, diagnose, fix, verify, report
 services/    the systems the agents depend on, with switches to break them on purpose
 chaos/       failure scenarios for testing
-dashboard/   the live dashboard
+dashboard/   the live dashboard (style.css for the look, names.py for the plain names it shows)
 benchmark/   comparison with retry-and-restart monitoring
 tests/       automated tests
 ```
 
-More: [demo guide](DEMO.md) · [design decisions](docs/DESIGN.md)
+More: [design decisions](docs/DESIGN.md)
