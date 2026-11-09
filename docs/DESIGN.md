@@ -3,7 +3,7 @@
 The simplest option that keeps the demo reliable, chosen at each step.
 
 - **Extra small modules** not in the original file list: `common/config.py` (loads `config.yaml` + `.env`),
-  `common/mock_llm.py` (scripted replies for `MOCK_LLM=1`), `services/chaos.py` (shared fault switch).
+  `services/chaos.py` (shared fault switch). The tests replace the AI model with scripted replies (`tests/fake_llm.py`).
 - **`control` table** in SQLite holds runtime switches (LLM chaos, route-to-backup, per-agent step cap and
   token budget). Chaos and the doctor run in other processes, so agents read these on every run.
 - **"down" fault** returns HTTP 503 immediately instead of killing the process, so it can be switched back instantly.
@@ -14,7 +14,7 @@ The simplest option that keeps the demo reliable, chosen at each step.
 - **Run status is the agent's own view.** A run where every tool call failed but the agent replied
   "could not get quotes" is still `ok`. The doctor has to look at spans and health checks, not trust this.
 - **Rules detect, the LLM diagnoses.** Detection is plain rules on the traces. Diagnosis uses the doctor LLM
-  (strict JSON, validated, one retry); in MOCK mode or if the LLM fails it uses a rule-based board.
+  (strict JSON, validated, one retry); if the LLM fails it uses a rule-based board.
 - **Circuit breaker + cache.** Every tool goes through `call_dependency`, which caches the last good
   response. The workload warms the quote cache at startup so a fallback always has data.
 - **Breaker closes by itself.** When a dependency with an open breaker reports healthy again,
