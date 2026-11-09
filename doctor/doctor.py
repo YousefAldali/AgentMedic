@@ -14,7 +14,7 @@ import httpx
 
 from common import db, registry
 from common.config import env, get_config, service_url
-from doctor import actions
+from doctor import actions, report_ar
 from doctor.correlator import correlate, read_state
 from doctor.detectors import Symptom, detect
 from doctor.diagnoser import diagnose, root_causes
@@ -34,6 +34,9 @@ class Doctor:
         self.cfg = get_config()["doctor"]
         self.watch_from = time.time()
         self.suppressed: dict[tuple, float] = {}
+        self.noticed: set[tuple] = set()
+        self.check_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="health")
+        self.checks: dict = {}
         self.last_reset = db.get_control("doctor.reset_at", 0)
 
     def reset(self) -> None:
@@ -48,12 +51,15 @@ class Doctor:
     def check_everyone(self, incident_id: int) -> None:
         # Something is wrong somewhere: health-check every agent now instead of waiting for the
         # schedule, so independent problems (e.g. a bad prompt) end up on the same board.
+        # One shared pool, and at most one check per agent at a time: a check that is
+        # still running from last time is waited on again instead of starting another.
         from fleet.workload import build_fleet
-        agents = list(build_fleet())
-        pool = ThreadPoolExecutor(max_workers=len(agents))
-        futures = {pool.submit(run_health_check, a, "incident"): a for a in agents}
+        for agent in build_fleet():
+            running = self.checks.get(agent)
+            if running is None or running.done():
+                self.checks[agent] = self.check_pool.submit(run_health_check, agent, "incident")
+        futures = {fut: agent for agent, fut in self.checks.items()}
         done, _ = wait(futures, timeout=self.cfg["on_demand_checks_s"])
-        pool.shutdown(wait=False)
         scores = []
         for fut, agent in futures.items():
             if fut in done and fut.exception() is None and fut.result():
@@ -75,6 +81,7 @@ class Doctor:
             self.watch_from = time.time()
 
     def handle(self, symptoms: list[Symptom], since: float) -> None:
+        self.noticed = set()
         first = min(s.first_seen for s in symptoms)
         incident_id = db.execute(
             "INSERT INTO incidents(status, symptoms, opened_at, first_symptom_at) VALUES('open', ?, ?, ?)",
@@ -141,7 +148,9 @@ class Doctor:
                     approval_id = actions.request_approval(name, target, incident_id, why)
                     event(incident_id, "TREAT", f"{name}({target}) [approval] -> waiting for a human to approve "
                           f"(#{approval_id}; dashboard, or: python -m doctor.approvals approve {approval_id})")
-                    decision = actions.wait_for_decision(approval_id, self.cfg["approval_timeout_s"])
+                    decision = actions.wait_for_decision(
+                        approval_id, self.cfg["approval_timeout_s"], every_s=self.cfg["poll_interval_s"],
+                        while_waiting=lambda: self.watch_while_waiting(incident_id, symptoms))
                     if decision["status"] != "approved":
                         status = "rejected" if decision["status"] == "rejected" else "not approved in time"
                         done_actions.append({"action": name, "target": target, "tier": actions.APPROVAL,
@@ -190,6 +199,20 @@ class Doctor:
                   f"the same problem won't reopen an incident for {cooldown} s.")
         self.report(incident_id, board, done_actions, verification, escalation_reason)
 
+    def watch_while_waiting(self, incident_id: int, symptoms: list[Symptom]) -> None:
+        # Keep the rest of the fleet covered while a human decides: bring recovered
+        # services back to live data, and say so when a new problem shows up.
+        self.restore_dependencies()
+        known = {(s.agent, s.dependency) for s in symptoms}
+        since = time.time() - self.cfg["window_s"]
+        for s in self.detect_now(since):
+            key = (s.agent, s.dependency)
+            if key in known or key in self.noticed:
+                continue
+            self.noticed.add(key)
+            event(incident_id, "DETECT", f"new problem while waiting for approval: {s.describe()} "
+                  "(handled right after this incident)")
+
     def report(self, incident_id: int, board, done_actions: list[dict], verification: list[dict],
                escalation_reason: str = "") -> None:
         incident = db.query("SELECT * FROM incidents WHERE id = ?", (incident_id,))[0]
@@ -199,27 +222,20 @@ class Doctor:
         for dep in get_config()["services"]:
             if db.get_control(f"circuit.{dep}") == "open":
                 state = read_state(dep) or {}
-                cached = " and agents are served cached data" if db.get_control(f"fallback.{dep}") else ""
-                from doctor.report_ar import STATUS_STILL, name
+                cached = bool(db.get_control(f"fallback.{dep}"))
                 follow_up.append((f"{dep} is still {state.get('status', 'unknown')}; its circuit breaker stays "
-                                  f"open{cached}. The doctor closes it automatically once {dep} is healthy.",
-                                  f"ما زال {name(dep)} {STATUS_STILL.get(state.get('status'), 'خارج الخدمة')}، "
-                                  f"لذلك يبقى قاطع الدائرة مفتوحًا"
-                                  + ("، ويحصل الوكلاء على البيانات الاحتياطية المخزنة" if cached else "")
-                                  + f". سيُغلقه AgentMedic تلقائيًا عند تعافي {name(dep)}."))
+                                  f"open{' and agents are served cached data' if cached else ''}. "
+                                  f"The doctor closes it automatically once {dep} is healthy.",
+                                  report_ar.follow_up_breaker(dep, state.get("status"), cached)))
         if db.get_control("llm.route_to_backup"):
             follow_up.append(("Fleet LLM calls still go to the backup model. Switch back once the primary "
-                              "model's latency is normal again.",
-                              "ما زالت استدعاءات الوكلاء تذهب إلى النموذج الاحتياطي. يُعاد التحويل إلى النموذج "
-                              "الأساسي عند عودة زمن استجابته إلى طبيعته."))
+                              "model's latency is normal again.", report_ar.follow_up_backup_model()))
         for agent in registry.dependencies():
-            if db.get_control(f"agent.{agent}.max_steps") is not None:
-                from doctor.report_ar import name as ar_name
-                cap = db.get_control(f"agent.{agent}.max_steps")
+            cap = db.get_control(f"agent.{agent}.max_steps")
+            if cap is not None:
                 follow_up.append((f"{agent} runs are capped at {cap} steps to contain the loop. A human should "
                                   "fix what makes the tool loop, then lift the cap.",
-                                  f"حُدّد تشغيل {ar_name(agent)} بسقف {cap} خطوات لاحتواء الحلقة. ينبغي أن يعالج "
-                                  "أحد أعضاء الفريق سبب تكرار الأداة، ثم يُرفع هذا السقف."))
+                                  report_ar.follow_up_step_cap(agent, cap)))
         en, ar = write_reports(facts(incident, board_dict, done_actions, verification, follow_up,
                                      escalation_reason))
         db.execute("UPDATE incidents SET report_md = ?, report_md_ar = ? WHERE id = ?", (en, ar, incident_id))
