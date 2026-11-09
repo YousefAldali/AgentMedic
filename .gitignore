@@ -10,6 +10,7 @@ __pycache__/
 traces.db
 traces.db-wal
 traces.db-shm
+dashboard.log
 
 # macOS
 .DS_Store
