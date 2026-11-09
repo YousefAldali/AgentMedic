@@ -104,3 +104,13 @@ def report(markdown: str) -> str:
         line = re.sub(r"`([^`]*\s[^`]*)`", r"\1", line)
         lines.append(line.replace("`", "") if line.count("`") % 2 else line)
     return "\n".join(lines)
+
+
+def ticker(message: str) -> str:
+    # A doctor event as one short readable line for the live view.
+    out = plain(message.split(" (failed:")[0].split(" | live:")[0])
+    out = re.sub(r"\s*\[(auto|approval|forbidden|unknown)\]", "", out)
+    out = re.sub(r"\s*\(#\d+;[^)]*\)", "", out)
+    out = out.replace("->", "→").replace("waiting for a human to approve", "waiting for your OK")
+    out = re.sub(r"\s+", " ", out).strip()
+    return out[:1].upper() + out[1:]
