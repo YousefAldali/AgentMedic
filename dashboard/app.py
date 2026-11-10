@@ -108,9 +108,8 @@ def pill(status: str) -> str:
     return f"<span class='pill {cls}'>{svg('dot', 10)} {label}</span>"
 
 
-def section(title: str, hint: str = "", icon: str = "", first: bool = False) -> str:
-    ico = f"<span class='ic'>{svg(icon, 16)}</span>" if icon else ""
-    return (f"<div class='sec{' first' if first else ''}'>{ico}<span class='t' role='heading' aria-level='2'>{esc(title)}</span>"
+def section(title: str, hint: str = "", first: bool = False) -> str:
+    return (f"<div class='sec{' first' if first else ''}'><span class='t' role='heading' aria-level='2'>{esc(title)}</span>"
             + (f"<span class='d'>{esc(hint)}</span>" if hint else "") + "</div>")
 
 
@@ -135,7 +134,7 @@ with st.sidebar:
         reset_all()
         st.toast("Everything is back to normal.")
     st.divider()
-    st.caption("ACTIVE FAILURES")
+    st.caption("Active failures")
     faults = data.active_faults()
     if faults:
         for f in faults:
@@ -158,7 +157,7 @@ def model_chip() -> str:
 logo_html = f"<img src='{data_url(ICON)}' alt=''/>" if ICON else svg("activity", 44, "#2dd4bf")
 st.markdown(f"<div class='hero'>{logo_html}<div><div class='title' role='heading' aria-level='1'>AgentMedic</div>"
             f"<div class='sub'>Watches your AI agents, finds what broke, and fixes it safely.</div></div>"
-            f"<div class='right'><span class='live'><span class='d'></span>LIVE</span>{model_chip()}</div></div>",
+            f"<div class='right'>{model_chip()}</div></div>",
             unsafe_allow_html=True)
 
 
@@ -322,14 +321,14 @@ def kpi_strip(cards: list[dict], incs: list[dict], trend: dict) -> None:
     tasks = [round(x * per_min) for x in trend["tasks"]]
     lat = [x for x in trend["latency"] if x is not None]
     kpis = [
-        ("Agents healthy", f"{healthy}/{len(cards)}", "answering correctly", "shield", "#4ade80", None),
+        ("Agents healthy", f"{healthy}/{len(cards)}", "answering correctly", "shield", "#2dd4bf", None),
         ("Tasks / min", f"{tasks[-2] if len(tasks) > 1 else 0}", "last 15 minutes", "zap", "#2dd4bf", tasks),
-        ("Response time", f"{lat[-1] / 1000:.1f}s" if lat else "–", "average AI answer", "clock", "#38bdf8",
+        ("Response time", f"{lat[-1] / 1000:.1f}s" if lat else "–", "average AI answer", "clock", "#2dd4bf",
          trend["latency"]),
         ("Time to notice", f"{latest['detect_s']}s" if latest and latest["detect_s"] is not None else "–",
-         "latest problem", "search", "#a78bfa", [i["detect_s"] for i in reversed(incs)]),
+         "latest problem", "search", "#2dd4bf", [i["detect_s"] for i in reversed(incs)]),
         ("Time to fix", f"{latest['recover_s']}s" if latest and latest["recover_s"] else "–",
-         "latest problem, until checked", "wrench", "#fbbf24", [i["recover_s"] for i in reversed(incs)]),
+         "latest problem, until checked", "wrench", "#2dd4bf", [i["recover_s"] for i in reversed(incs)]),
     ]
     out = []
     for n, (label, value, hint, icon, color, series) in enumerate(kpis):
@@ -337,8 +336,7 @@ def kpi_strip(cards: list[dict], incs: list[dict], trend: dict) -> None:
             chart = f"<div class='spark'>{bars(series, color, label=label + ' in seconds')}</div>" if series else ""
         else:
             chart = f"<div class='spark'>{sparkline(series, color, label=label + ' over the last 15 minutes')}</div>" if series else ""
-        out.append(f"<div class='card kpi'><div class='top'><div class='l'>{esc(label)}</div><div class='v'>{esc(value)}"
-                   f"</div><div class='ic' style='background:{color}1f;color:{color}'>{svg(icon, 16)}</div></div>"
+        out.append(f"<div class='card kpi'><div class='l'>{esc(label)}</div><div class='v'>{esc(value)}</div>"
                    f"<div class='hint'>{esc(hint)}</div>{chart}</div>")
     st.markdown("<div class='kpis'>" + "".join(out) + "</div>", unsafe_allow_html=True)
 
@@ -357,7 +355,7 @@ def agent_cards(cards: list[dict], trend: dict) -> None:
             notes.append(f"{svg('alert', 13)} {esc(names.SYMPTOMS.get(names.symptom_type(c['symptoms'][0]), ''))}")
         series = trend["agent_latency"].get(c["agent"], [])
         out.append(
-            f"<div class='card agent' style='--accent:{color}'><div class='head'>"
+            f"<div class='card agent' style='--status:{color}'><div class='head'>"
             f"<div class='av'>{svg(AGENT_ICON.get(c['agent'], 'user'), 20)}</div><div>"
             f"<div class='nm'>{esc(names.AGENTS.get(c['agent'], c['agent']))}</div>"
             f"<div class='rl'>{esc(AGENT_ROLE.get(c['agent'], ''))}</div></div></div>"
@@ -395,9 +393,9 @@ def overview_tab() -> None:
     cards = cards_now()
     trend = trends_now()
     kpi_strip(cards, data.incidents(), trend)
-    st.markdown(section("AI agents", "response time over the last 15 minutes", "users"), unsafe_allow_html=True)
+    st.markdown(section("AI agents", "response time over the last 15 minutes"), unsafe_allow_html=True)
     agent_cards(cards, trend)
-    st.markdown(section("Systems the agents use", "", "link"), unsafe_allow_html=True)
+    st.markdown(section("Systems the agents use"), unsafe_allow_html=True)
     systems_row()
 
 
