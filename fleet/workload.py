@@ -1,7 +1,7 @@
 # Sends a steady stream of realistic English and Arabic tasks to the fleet.
 import itertools
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import httpx
 
@@ -81,10 +81,14 @@ def run_forever(stop: threading.Event) -> None:
     warm_cache()
     fleet = build_fleet()
     # Every agent gets one new task per interval, spread out so they don't all start at once.
+    # An agent whose last task is still running (a slow model) skips its turn instead of
+    # queueing more work, so a slow model never builds a backlog it can't catch up on.
     gap = cfg["interval_s"] / len(fleet)
+    busy: dict[str, Future] = {}
     with ThreadPoolExecutor(max_workers=cfg["max_concurrent"]) as pool:
         while not stop.is_set():
             for name, agent in fleet.items():
-                pool.submit(_run_one, agent, next_task(name))
+                if name not in busy or busy[name].done():
+                    busy[name] = pool.submit(_run_one, agent, next_task(name))
                 if stop.wait(gap):
                     break
