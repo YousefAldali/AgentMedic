@@ -181,6 +181,7 @@ def main() -> None:
     print(f"AgentMedic | model {env('FLEET_MODEL') or '-'} | db={get_config()['db_path']}")
 
     procs = start_services()
+    log = None
     from chaos.faults import reset_all
     reset_all()  # start clean: no faults, no breakers left over from a previous run
     stop = threading.Event()
@@ -226,6 +227,8 @@ def main() -> None:
         for t in threads:
             t.join(timeout=15)
         stop_services(procs)
+        if log:
+            log.close()
         print("\nStopped.")
 
 
