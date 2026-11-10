@@ -117,3 +117,34 @@ def test_health_check_stopped_mid_run_saves_nothing(monkeypatch):
     monkeypatch.setattr("fleet.workload.build_fleet", lambda: {"hr": SlowAgent()})
     assert monitor.run_health_check("hr", stop=stop) is None
     assert db.query("SELECT COUNT(*) AS n FROM health_checks")[0]["n"] == 0
+
+
+def test_tool_crash_is_shown_to_the_model_and_the_run_still_ends(monkeypatch):
+    # A bug inside a tool must not leave the run marked "running" forever.
+    from fleet.finance_agent import FinanceAgent, get_purchase_order
+
+    def broken(po_id):
+        raise KeyError("missing column")
+    agent = FinanceAgent()
+    monkeypatch.setitem(agent.tools, "get_purchase_order",
+                        type(agent.tools["get_purchase_order"])(broken, agent.tools["get_purchase_order"].schema))
+    result = agent.run("Validate invoice INV-1 from eXtra Enterprise for 39500 SAR against PO-GOLD01.")
+    assert result["status"] == "ok"
+    errors = db.query("SELECT error FROM spans WHERE kind = 'tool' AND run_id = ?", (result["run_id"],))
+    assert errors and errors[0]["error"].startswith("tool crashed: KeyError")
+    assert db.query("SELECT status FROM runs WHERE run_id = ?", (result["run_id"],))[0]["status"] == "ok"
+
+
+def test_crash_in_the_agent_loop_ends_the_run_as_failed(monkeypatch):
+    from common import llm
+    from fleet.finance_agent import FinanceAgent
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("unexpected")
+    monkeypatch.setattr(llm, "_complete", explode)
+    result = FinanceAgent().run("Validate invoice INV-2.")
+    assert result["status"] == "failed"
+    row = db.query("SELECT status FROM runs WHERE run_id = ?", (result["run_id"],))[0]
+    assert row["status"] == "failed"
+    err = db.query("SELECT error FROM spans WHERE run_id = ? AND kind = 'error'", (result["run_id"],))[0]["error"]
+    assert err.startswith("agent crashed: RuntimeError")
