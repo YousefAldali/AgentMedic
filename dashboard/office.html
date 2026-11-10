@@ -193,7 +193,8 @@ function envelope(x, y) {
   ctx.strokeStyle = "#0b1220"; ctx.lineWidth = 1.3;
   ctx.beginPath(); ctx.moveTo(x - 8, y - 5); ctx.lineTo(x, y + 1); ctx.lineTo(x + 8, y - 5); ctx.stroke();
 }
-function glow(color, blur) { ctx.shadowColor = color; ctx.shadowBlur = blur; }
+// Soft light only: a hint of colour around a shape, never a neon halo.
+function glow(color, blur) { ctx.shadowColor = color; ctx.shadowBlur = Math.min(blur, 5); }
 function noGlow() { ctx.shadowBlur = 0; }
 function failing(s) { return (s.status !== "up" && s.status !== "primary") || s.integrity !== "ok"; }
 function sysColor(s) {
@@ -205,9 +206,9 @@ function sysColor(s) {
 // ---------------------------------------------------------------- scene
 function drawFloor(t) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#0d1629"); g.addColorStop(1, "#0a1120");
+  g.addColorStop(0, "#121a2b"); g.addColorStop(1, "#0f1626");
   ctx.fillStyle = g; rr(0, 0, W, H, 16); ctx.fill();
-  ctx.strokeStyle = "rgba(148,163,184,0.05)"; ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(148,163,184,0.035)"; ctx.lineWidth = 1;
   for (let x = 0; x <= W; x += 32) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
   for (let y = 0; y <= H; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
   ctx.fillStyle = "rgba(56,189,248,0.05)"; ctx.fillRect(0, CORRIDOR - 22, 960, 44);
@@ -288,7 +289,7 @@ function drawSystems(t) {
   if (!state) return;
   for (const s of state.services) {
     const [x, y] = SYSTEMS[s.name]; const col = sysColor(s);
-    glow(col, failing(s) ? 18 + 6 * Math.sin(t / 200) : 8);
+    glow(col, failing(s) ? 5 : 3);
     ctx.fillStyle = "rgba(15,23,42,0.85)"; ctx.strokeStyle = col; ctx.lineWidth = 1.6;
     rr(x - 92, y - 40, 184, 80, 14); ctx.fill(); ctx.stroke(); noGlow();
     sysIcon(SYSTEM[s.name][0], x - 60, y, col);
@@ -309,7 +310,7 @@ function drawDesks(t) {
   if (!state) return;
   for (const a of state.agents) {
     const [x, y] = DESKS[a.name]; const col = C[a.status] || C.dim;
-    const pulse = a.status === "red" ? 22 + 10 * Math.sin(t / 160) : a.status === "yellow" ? 14 : 10;
+    const pulse = a.status === "red" ? 5 + 2 * Math.sin(t / 160) : 3;
     glow(col, pulse);
     ctx.fillStyle = "rgba(15,23,42,0.88)"; ctx.strokeStyle = col; ctx.lineWidth = a.status === "red" ? 2.4 : 1.6;
     rr(x - 92, y - 62, 184, 124, 16); ctx.fill(); ctx.stroke(); noGlow();
@@ -359,7 +360,7 @@ function drawDoctor(t, dt) {
   const bob = walking ? Math.abs(Math.sin(t / 85)) * -6 : Math.sin(t / 500) * 1.2;
   ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.beginPath(); ctx.ellipse(doc.x, doc.y + 22, 17, 5, 0, 0, Math.PI * 2); ctx.fill();
   glow("rgba(56,189,248,0.8)", working ? 24 : 12);
-  ctx.fillStyle = "rgba(56,189,248,0.10)"; ctx.beginPath(); ctx.arc(doc.x, doc.y + bob, 25, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(56,189,248,0.06)"; ctx.beginPath(); ctx.arc(doc.x, doc.y + bob, 25, 0, Math.PI * 2); ctx.fill();
   noGlow();
   doctorFigure(doc.x, doc.y + bob);
   let [dotColor, label] = STAGE[s ? s.stage : "IDLE"] || STAGE.IDLE;
