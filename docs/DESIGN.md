@@ -67,3 +67,6 @@ The simplest option that keeps the demo reliable, chosen at each step.
 - **The live office animates in the browser** from a small JSON feed (`dashboard/status_api.py`, port 8104),
   so the animation never restarts when the rest of the dashboard refreshes. Where the doctor walks comes from
   its latest real event: the first agent or system named in it.
+- **The dashboard's plain names are hand-written tables** (`dashboard/names.py`: agents, systems, symptoms, fixes).
+  A new agent or system works everywhere else from `config.yaml` alone, but shows up on the dashboard under its
+  technical id until a plain name is added there.
