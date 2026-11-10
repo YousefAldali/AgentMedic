@@ -60,10 +60,22 @@ _WORDS = {**SYMPTOMS, **ACTIONS_SHORT, **TOOLS, "LLM endpoint": "AI model", "LLM
 _PATTERN = re.compile("|".join(rf"\b{re.escape(k)}\b" for k in sorted(_WORDS, key=len, reverse=True)))
 
 
+def _target(m: re.Match) -> str:
+    # "pause calls to(Supplier system)" -> "pause calls to the Supplier system"; agents take no "the".
+    word, target = m.group(1), m.group(2)
+    if word == "model":
+        return word
+    if target in SYSTEMS.values():
+        return f"{word} the {target}"
+    if target in AGENTS.values():
+        return f"{word} {target}"
+    return f"{word} ({target})"
+
+
 def plain(text: str) -> str:
     # Swap technical ids inside a sentence for plain words.
     out = _PATTERN.sub(lambda m: _WORDS[m.group(0)], text or "")
-    return re.sub(r"\b(to|for|of|model)\(", r"\1 (", out)
+    return re.sub(r"\b(to|for|of|model)\(([^)]*)\)", _target, out)
 
 
 def cause(cause_id: str) -> str:
