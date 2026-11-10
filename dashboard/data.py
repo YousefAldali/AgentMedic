@@ -132,6 +132,21 @@ ACTIVE_WORDS = {"down": "down", "slow": "slow", "error_500": "returning errors",
                 "flaky": "failing now and then", "unreachable": "not reachable"}
 
 
+def _control_fault(key: str, value) -> str:
+    # A chaos switch from the control table, in words.
+    if key == "llm.chaos":
+        mode = value.get("mode", "none") if isinstance(value, dict) else value
+        extra = f" ({value.get('latency_ms')} ms added to every call)" if mode == "slow" and isinstance(value, dict) else ""
+        return f"llm: {ACTIVE_WORDS.get(mode, mode)}{extra}"
+    if key.endswith(".stuck_item"):
+        return f"{key.split('.')[1]}: the quote job for {value} never finishes"
+    if key.endswith(".bad_item_every"):
+        n = int(value)
+        nth = {1: "st", 2: "nd", 3: "rd"}.get(n if n < 20 else n % 10, "th")
+        return f"{key.split('.')[1]}: the price lookup garbles every {n}{nth} request"
+    return f"{key} = {value}"
+
+
 def active_faults() -> list[str]:
     # Which failures are switched on right now (shown in the sidebar only; the doctor never reads this).
     faults = []
@@ -143,7 +158,7 @@ def active_faults() -> list[str]:
         if mode != "none":
             faults.append(f"{name}: {ACTIVE_WORDS.get(mode, mode)}")
     for r in db.query("SELECT key, value FROM control WHERE key LIKE 'chaos.%' OR key = 'llm.chaos'"):
-        faults.append(f"{r['key']} = {r['value']}")
+        faults.append(_control_fault(r["key"], json.loads(r["value"])))
     for agent in registry.dependencies():
         info = registry.active_info(agent)
         if info["version"] is not None and info["version"] != registry.last_known_good(agent):
