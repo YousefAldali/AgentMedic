@@ -1,6 +1,7 @@
 # Benchmark: naive retry/restart baseline vs AgentMedic on every scenario.
 #
-#   python -m benchmark.run_benchmark                    # all scenarios, both remediators (calls the AI model)
+#   python -m benchmark.run_benchmark --scripted         # scripted AI replies: free, same result every run
+#   python -m benchmark.run_benchmark                    # all scenarios, both remediators (calls your AI model)
 #   python -m benchmark.run_benchmark S7 S8              # only some scenarios
 #   python -m benchmark.run_benchmark --timeout 150      # seconds each remediator gets per scenario
 #   python -m benchmark.run_benchmark --only agentmedic  # rerun one side, keep the other side's last results
@@ -26,6 +27,7 @@ from doctor.monitor import run_health_check, snapshot
 
 RESULTS = ROOT / "benchmark" / "results"
 CLEANUP = {"close_circuit_breaker", "disable_fallback"}
+SCRIPTED_DELAY_S = 0.15  # pretend each scripted AI reply takes this long, like a fast real model
 
 
 @dataclass
@@ -209,18 +211,28 @@ def keep_other_side(rows: list[Row], only: str) -> tuple[list[Row], str]:
     return ordered, note
 
 
-def write_outputs(rows: list[Row], note: str = "") -> dict:
+def use_scripted_replies() -> None:
+    # Swap the real AI model for the scripted replies the tests use. No key, no network, no cost.
+    from common import llm
+    from tests.fake_llm import scripted_complete
+    llm._complete = lambda model, messages, tools, agent: scripted_complete(model, messages, tools, agent,
+                                                                            SCRIPTED_DELAY_S)
+    for name in ("FLEET_MODEL", "DOCTOR_MODEL", "BACKUP_MODEL"):
+        os.environ[name] = f"scripted-{name.split('_')[0].lower()}"
+
+
+def write_outputs(rows: list[Row], note: str = "", scripted: bool = False) -> dict:
     RESULTS.mkdir(parents=True, exist_ok=True)
     with open(RESULTS / "benchmark.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(asdict(rows[0])))
         w.writeheader()
         w.writerows(asdict(r) for r in rows)
     s = summary(rows)
-    (RESULTS / "benchmark.json").write_text(json.dumps({"mode": "real", "summary": s,
+    (RESULTS / "benchmark.json").write_text(json.dumps({"mode": "scripted" if scripted else "real", "summary": s,
                                                         "finished_at": time.strftime("%Y-%m-%d %H:%M"), "note": note,
                                                         "rows": [asdict(r) for r in rows]}, indent=2), encoding="utf-8")
     lines = ["# Benchmark: AgentMedic vs naive retry + restart", "",
-             f"Mode: real models · scenarios: {len(set(r.scenario for r in rows))}"
+             f"Mode: {'scripted AI replies' if scripted else 'real models'} · scenarios: {len(set(r.scenario for r in rows))}"
              + (f"  \n{note}" if note else ""), "",
              "| Remediator | Recovery rate | Mean time to recover | Root causes found | Wrong / unnecessary actions | "
              "Correct escalations (F10) |", "|---|---|---|---|---|---|"]
@@ -245,12 +257,15 @@ def main() -> None:
     ap.add_argument("--timeout", type=float, default=150)
     ap.add_argument("--settle", type=float, default=10)
     ap.add_argument("--only", choices=["agentmedic", "naive"])
+    ap.add_argument("--scripted", action="store_true", help="use scripted AI replies instead of your AI model")
     args = ap.parse_args()
+    if args.scripted:
+        use_scripted_replies()
     rows = run(args.scenarios or list(SCENARIOS), args.timeout, args.settle, args.only)
     note = ""
     if args.only:
         rows, note = keep_other_side(rows, args.only)
-    write_outputs(rows, note)
+    write_outputs(rows, note, args.scripted)
     from benchmark.chart import draw
     draw(rows)
 
