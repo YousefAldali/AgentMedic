@@ -5,9 +5,10 @@
 # model would. Replies are in Arabic when the task is in Arabic.
 import json
 import re
+import time
 import uuid
 
-from common.llm import ToolCall
+from common.llm import LLMError, LLMResponse, ToolCall
 
 ARABIC = re.compile(r"[؀-ۿ]")
 MAX_TOOL_RETRIES = 3  # how often a scripted agent retries a failing tool before giving up
@@ -176,3 +177,16 @@ def fake_reply(agent: str, messages: list[dict], tools: list[dict]):
         return f"No script for agent '{agent}'.", []
     system = next((m["content"] for m in messages if m["role"] == "system"), "")
     return planner(task, _tool_results(messages), bool(ARABIC.search(task)), system)
+
+
+def scripted_complete(model, messages, tools, agent, delay_s: float = 0.0):
+    # Drop-in for common.llm._complete. Scripted agents answer like a real model; the doctor's own
+    # calls fail, so it uses its rule-based board and report templates.
+    if delay_s:
+        time.sleep(delay_s)
+    if agent == "doctor":
+        raise LLMError("no AI model in scripted mode")
+    content, calls = fake_reply(agent, messages, tools or [])
+    tokens_in = len(json.dumps(messages, ensure_ascii=False)) // 4
+    tokens_out = len(json.dumps([content, [c.__dict__ for c in calls]], ensure_ascii=False)) // 4
+    return LLMResponse(content, calls, tokens_in, tokens_out, model)
