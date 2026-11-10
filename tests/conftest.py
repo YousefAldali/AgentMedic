@@ -1,7 +1,6 @@
 # Shared test setup: every test gets its own empty database, the AI model is replaced by
 # scripted replies (tests/fake_llm.py, no API key or network needed),
 # and helpers build symptoms and candidates without running the real services.
-import json
 import time
 import uuid
 
@@ -10,23 +9,12 @@ import pytest
 from common import db, llm, registry
 from doctor.correlator import Candidate
 from doctor.detectors import Symptom
-
-
-def fake_complete(model, messages, tools, agent):
-    # Scripted agents answer like a real model; the doctor's own calls fail, so it uses
-    # its rule-based board and report templates, which is what the tests check.
-    from tests.fake_llm import fake_reply
-    if agent == "doctor":
-        raise llm.LLMError("no AI model in tests")
-    content, calls = fake_reply(agent, messages, tools or [])
-    tokens_in = len(json.dumps(messages, ensure_ascii=False)) // 4
-    tokens_out = len(json.dumps([content, [c.__dict__ for c in calls]], ensure_ascii=False)) // 4
-    return llm.LLMResponse(content, calls, tokens_in, tokens_out, model)
+from tests.fake_llm import scripted_complete
 
 
 @pytest.fixture(autouse=True)
 def fresh_db(tmp_path, monkeypatch):
-    monkeypatch.setattr(llm, "_complete", fake_complete)
+    monkeypatch.setattr(llm, "_complete", scripted_complete)
     monkeypatch.setenv("FLEET_MODEL", "test-primary")
     monkeypatch.setenv("DOCTOR_MODEL", "test-doctor")
     monkeypatch.setenv("BACKUP_MODEL", "test-backup")
