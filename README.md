@@ -57,6 +57,14 @@ Tested on 11 failure scenarios, including 2 and 3 failures at once, against clas
 These runs used scripted AI replies, so every run behaves the same and the comparison is fair. Details:
 [benchmark/results/benchmark.md](benchmark/results/benchmark.md)
 
+To run it yourself for free (no AI key needed, takes about half an hour):
+
+```bash
+.venv/bin/python -m benchmark.run_benchmark --scripted
+```
+
+Leave out `--scripted` to run it on your own AI model instead (this costs money and the numbers will vary).
+
 ## Quick start
 
 Needs Python 3.11 or newer and an AI model that supports tool calling. Use whichever provider you have.
@@ -103,7 +111,12 @@ FLEET_MODEL=llama3.1
 `DOCTOR_MODEL` (the model the doctor thinks with) and `BACKUP_MODEL` (used when the main model is slow) are
 optional and fall back to `FLEET_MODEL`.
 
-Run the tests with `.venv/bin/python -m pytest -q` (no API key needed: the tests use scripted AI replies).
+Run the tests with (no API key needed: the tests use scripted AI replies):
+
+```bash
+uv pip install -p .venv -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+```
 
 ## Project structure
 
@@ -115,6 +128,14 @@ chaos/       failure scenarios for testing
 dashboard/   the live dashboard (style.css for the look, names.py for the plain names it shows)
 benchmark/   comparison with retry-and-restart monitoring
 tests/       automated tests
+data/        sample company data: employees, supplier prices, prompts, and the HR and support
+             policies in English and Arabic (data/kb/) that the knowledge base searches
 ```
 
+To give the agents your own policies, add Markdown files to `data/kb/`. The knowledge base reads them when it starts.
+
 More: [design decisions](docs/DESIGN.md)
+
+## License
+
+MIT. See [LICENSE](LICENSE).
