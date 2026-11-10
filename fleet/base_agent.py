@@ -99,45 +99,50 @@ class BaseAgent:
             tracer.end_run(run_id, status, total_tokens, step)
             return {"run_id": run_id, "agent": self.name, "status": status, "answer": answer}
 
-        for step in range(1, max_steps + 1):
-            if db.get_control(f"agent.{self.name}.kill_before", 0) > started:
-                tracer.log_span(run_id, self.name, step, "error", error="run killed by the doctor",
-                                prompt_version=version)
-                return finish("killed")
-            try:
-                resp = llm.chat(messages, schemas, agent=self.name)
-            except llm.LLMError as e:
-                tracer.log_span(run_id, self.name, step, "error", error=str(e), prompt_version=version)
-                return finish("failed")
+        try:
+            for step in range(1, max_steps + 1):
+                if db.get_control(f"agent.{self.name}.kill_before", 0) > started:
+                    tracer.log_span(run_id, self.name, step, "error", error="run killed by the doctor",
+                                    prompt_version=version)
+                    return finish("killed")
+                try:
+                    resp = llm.chat(messages, schemas, agent=self.name)
+                except llm.LLMError as e:
+                    tracer.log_span(run_id, self.name, step, "error", error=str(e), prompt_version=version)
+                    return finish("failed")
 
-            total_tokens += resp.tokens_in + resp.tokens_out
-            tracer.log_span(run_id, self.name, step, "llm", input=messages[-1], output={
-                "content": resp.content, "tool_calls": [c.__dict__ for c in resp.tool_calls]},
-                latency_ms=resp.latency_ms, tokens_in=resp.tokens_in, tokens_out=resp.tokens_out,
-                model=resp.model, prompt_version=version)
+                total_tokens += resp.tokens_in + resp.tokens_out
+                tracer.log_span(run_id, self.name, step, "llm", input=messages[-1], output={
+                    "content": resp.content, "tool_calls": [c.__dict__ for c in resp.tool_calls]},
+                    latency_ms=resp.latency_ms, tokens_in=resp.tokens_in, tokens_out=resp.tokens_out,
+                    model=resp.model, prompt_version=version)
 
-            if budget and total_tokens > budget:
-                tracer.log_span(run_id, self.name, step, "error",
-                                error=f"token budget {budget} exceeded", prompt_version=version)
-                return finish("killed")
+                if budget and total_tokens > budget:
+                    tracer.log_span(run_id, self.name, step, "error",
+                                    error=f"token budget {budget} exceeded", prompt_version=version)
+                    return finish("killed")
 
-            if not resp.tool_calls:
-                tracer.log_span(run_id, self.name, step, "final", output=resp.content,
-                                model=resp.model, prompt_version=version)
-                return finish("ok", resp.content)
+                if not resp.tool_calls:
+                    tracer.log_span(run_id, self.name, step, "final", output=resp.content,
+                                    model=resp.model, prompt_version=version)
+                    return finish("ok", resp.content)
 
-            messages.append({"role": "assistant", "content": resp.content, "tool_calls": [
-                {"id": c.id, "type": "function",
-                 "function": {"name": c.name, "arguments": json.dumps(c.arguments, ensure_ascii=False)}}
-                for c in resp.tool_calls]})
-            for call in resp.tool_calls:
-                result = self._run_tool(run_id, step, call, version)
-                messages.append({"role": "tool", "tool_call_id": call.id,
-                                 "content": json.dumps(result, ensure_ascii=False)})
+                messages.append({"role": "assistant", "content": resp.content, "tool_calls": [
+                    {"id": c.id, "type": "function",
+                     "function": {"name": c.name, "arguments": json.dumps(c.arguments, ensure_ascii=False)}}
+                    for c in resp.tool_calls]})
+                for call in resp.tool_calls:
+                    result = self._run_tool(run_id, step, call, version)
+                    messages.append({"role": "tool", "tool_call_id": call.id,
+                                     "content": json.dumps(result, ensure_ascii=False)})
 
-        tracer.log_span(run_id, self.name, step, "error",
-                        error=f"step cap {max_steps} reached", prompt_version=version)
-        return finish("timeout")
+            tracer.log_span(run_id, self.name, step, "error",
+                            error=f"step cap {max_steps} reached", prompt_version=version)
+            return finish("timeout")
+        except Exception as e:  # a bug anywhere in the loop ends the run as failed, never as "running" forever
+            tracer.log_span(run_id, self.name, step, "error", error=f"agent crashed: {type(e).__name__}: {e}",
+                            prompt_version=version)
+            return finish("failed")
 
     def _run_tool(self, run_id: str, step: int, call: llm.ToolCall, version: int) -> dict:
         start = time.perf_counter()
@@ -151,6 +156,8 @@ class BaseAgent:
             error = str(e)
         except TypeError as e:  # bad arguments from the model
             error = f"bad arguments: {e}"
+        except Exception as e:  # a bug or bad data inside the tool: the model sees it, the run goes on
+            error = f"tool crashed: {type(e).__name__}: {e}"
         latency = (time.perf_counter() - start) * 1000
         tracer.log_span(run_id, self.name, step, "tool", tool_name=call.name, input=call.arguments,
                         output=result, error=error, latency_ms=latency, prompt_version=version)
